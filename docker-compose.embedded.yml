@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # Spark Backend (The Core Engine)
+  spark-engine:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - REDIS_URL=redis://redis:6379
+      # Database Config (Uses local postgres below)
+      - SUPABASE_URL=http://postgres:5432/spark
+      - SUPABASE_ANON_KEY=placeholder-local-dev
+      - SUPABASE_SERVICE_ROLE_KEY=placeholder-local-dev
+      # LLM Config (Developer must provide one)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  # Redis for Caching
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  # Postgres (Replaces Supabase for self-hosted ease)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: spark
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # We need to mount init scripts to create the schema
+      - ./supabase/migrations:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+

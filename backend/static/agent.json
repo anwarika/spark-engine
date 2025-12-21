@@ -1,0 +1,28 @@
+{
+  "name": "Spark A2A Agent",
+  "description": "An AI agent that generates interactive micro-applications (charts, dashboards, tools) on demand.",
+  "tools": [
+    {
+      "name": "generate_microapp",
+      "description": "Generates a UI micro-app based on a prompt and optional data.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Description of the UI to build"
+          },
+          "data_context": {
+            "type": "object",
+            "description": "Optional data or schema to bind to the UI"
+          }
+        },
+        "required": ["prompt"]
+      },
+      "url": "/api/a2a/generate",
+      "method": "POST"
+    }
+  ],
+  "version": "1.0.0"
+}
+

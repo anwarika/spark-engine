@@ -1,0 +1,72 @@
+openapi: 3.1.0
+info:
+  title: Spark MicroApp Agent
+  description: Generate interactive UI micro-apps (charts, dashboards, forms) on demand.
+  version: 1.0.0
+servers:
+  - url: https://your-spark-domain.com
+paths:
+  /api/a2a/generate:
+    post:
+      operationId: generateMicroApp
+      summary: Generate a UI micro-app
+      description: |
+        Generates a hosted interactive micro-app (Solid.js) based on a natural language prompt and data context.
+        Returns a URL to the rendered application.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                  description: Description of the UI component to build (e.g. "A sales dashboard for Q3")
+                data_context:
+                  type: object
+                  description: Optional JSON data or schema to bind to the UI.
+                style_context:
+                  type: object
+                  description: Optional theme preferences (colors, etc.)
+              required:
+                - prompt
+      responses:
+        "200":
+          description: Successful generation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [success, needs_info, error]
+                  microapp_url:
+                    type: string
+                    description: URL to embed or link to the generated app.
+                  missing_info:
+                    type: object
+                    description: If status is needs_info, this contains the schema of missing data.
+                  message:
+                    type: string
+  /api/a2a/render:
+    get:
+      operationId: renderMagicLink
+      summary: Quick Render (Magic Link)
+      description: Returns a full HTML page with the generated micro-app. Useful for providing clickable links in chat.
+      parameters:
+        - name: prompt
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The prompt to generate the UI from.
+      responses:
+        "200":
+          description: HTML Page
+          content:
+            text/html:
+              schema:
+                type: string
+
