@@ -10,10 +10,8 @@ services:
       - ENVIRONMENT=production
       - LOG_LEVEL=INFO
       - REDIS_URL=redis://redis:6379
-      # Database Config (Uses local postgres below)
-      - SUPABASE_URL=http://postgres:5432/spark
-      - SUPABASE_ANON_KEY=placeholder-local-dev
-      - SUPABASE_SERVICE_ROLE_KEY=placeholder-local-dev
+      # Database Config
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/spark
       # LLM Config (Developer must provide one)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -38,7 +36,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # We need to mount init scripts to create the schema
-      - ./supabase/migrations:/docker-entrypoint-initdb.d
+      - ./database/migrations:/docker-entrypoint-initdb.d
     restart: unless-stopped
 
 volumes:

@@ -40,7 +40,7 @@ Want to add "Generate UI" capabilities to your own AI agent or chat app?
 - **LLM-Powered Generation**: OpenAI GPT-4o-mini generates optimized Solid.js components on demand
 - **Multi-Layered Security**: AST analysis, forbidden API detection, and sandboxed execution
 - **High Performance**: Redis caching, esbuild compilation, and Solid.js's minimal runtime
-- **Multi-Tenant Architecture**: Complete tenant isolation with Supabase RLS
+- **Multi-Tenant Architecture**: Complete tenant isolation with PostgreSQL RLS
 - **Chat Interface**: Clean React + DaisyUI UI for natural interaction
 - **Component Registry**: Store, version, and manage generated components
 
@@ -61,7 +61,7 @@ Want to add "Generate UI" capabilities to your own AI agent or chat app?
 - FastAPI + Python 3.11+
 - OpenAI API (GPT-4o-mini)
 - esbuild (Solid.js compilation)
-- Supabase (PostgreSQL database)
+- PostgreSQL (Database)
 - Redis (caching)
 
 ## Architecture
@@ -85,7 +85,7 @@ Want to add "Generate UI" capabilities to your own AI agent or chat app?
      │       │
      │       └─────► Redis (Cache)
      │
-     └─────────────► Supabase (Database)
+     └─────────────► PostgreSQL (Database)
 ```
 
 ## Project Structure
@@ -114,7 +114,7 @@ spark/
 │   │   ├── middleware/       # Auth & logging
 │   │   ├── models/           # Pydantic models
 │   │   ├── config.py         # Settings
-│   │   ├── database.py       # Supabase & Redis
+│   │   ├── database.py       # Database & Redis
 │   │   └── main.py           # FastAPI app
 │   └── requirements.txt
 │
@@ -143,7 +143,7 @@ All tables have RLS policies for tenant isolation.
 - Node.js 20+
 - Python 3.11+
 - Docker & Docker Compose
-- Supabase account
+- PostgreSQL (or use Docker)
 - OpenAI API key
 
 ### Environment Variables
@@ -152,39 +152,17 @@ Create `.env` files:
 
 **Backend `.env`:**
 ```env
-SUPABASE_URL=your-supabase-url
-SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+DATABASE_URL=postgresql://postgres:password@localhost:5432/spark
 REDIS_URL=redis://localhost:6379
 OPENAI_API_KEY=your-openai-key
 ENVIRONMENT=development
 LOG_LEVEL=INFO
-
-# Optional: Appsmith auto-create (experimental, local/dev)
-# Spark can sign in to Appsmith and create a new scaffold app + pages.
-# Requires you to create an Appsmith user first by visiting http://localhost:8080 and signing up.
-APPSMITH_AUTOCREATE_ENABLED=false
-APPSMITH_PUBLIC_URL=http://localhost:8080
-APPSMITH_INTERNAL_URL=http://appsmith:80
-APPSMITH_EMAIL=you@example.com
-APPSMITH_PASSWORD=your-password
 ```
-
-**Note:** The `SUPABASE_SERVICE_ROLE_KEY` is required for development to bypass RLS policies. Find it in your Supabase project: **Settings → API → Project API keys → `service_role`** (secret).
 
 **Frontend `.env`:**
 ```env
 VITE_API_URL=http://localhost:8000/api
 ```
-
-### Appsmith Auto-Create (Optional)
-
-Spark can optionally auto-create an Appsmith app (and basic pages) when the LLM chooses `appsmith_app`.
-
-- **One-time setup**: open `http://localhost:8080` and create an Appsmith user (signup).
-- **Enable in Spark**: set `APPSMITH_AUTOCREATE_ENABLED=true` plus `APPSMITH_EMAIL` / `APPSMITH_PASSWORD`.
-- **Docker note**: the backend talks to Appsmith via `APPSMITH_INTERNAL_URL` (defaults to `http://appsmith:80` in `docker-compose.yml`). Don’t point it at `http://localhost:8080` unless you’re running the backend outside docker.
-- **Security note**: this uses Appsmith session auth (cookies + XSRF) and is intended for local/dev.
 
 ### Local Development
 
@@ -205,14 +183,20 @@ open http://localhost:8000
 docker run -p 6379:6379 redis:7-alpine
 ```
 
-**Terminal 2 - Backend:**
+**Terminal 2 - PostgreSQL:**
+```bash
+docker run -p 5432:5432 -e POSTGRES_PASSWORD=password -e POSTGRES_DB=spark postgres:15-alpine
+# Note: You need to run migrations manually
+```
+
+**Terminal 3 - Backend:**
 ```bash
 cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-**Terminal 3 - Frontend:**
+**Terminal 4 - Frontend:**
 ```bash
 cd frontend
 npm install
@@ -223,12 +207,13 @@ Access frontend at `http://localhost:5173`
 
 ### Database Setup
 
-The Supabase schema is automatically created via migration. Tables include:
+The database schema is automatically created via migration scripts in `database/migrations`. Tables include:
 
 - Components with code, metadata, and compiled bundles
 - Chat sessions and message history
 - Execution logs and user feedback
 - Audit trail for all actions
+
 
 ## Usage
 
@@ -354,9 +339,7 @@ docker build -t spark:latest .
 
 # Run container
 docker run -p 8000:8000 \
-  -e SUPABASE_URL=... \
-  -e SUPABASE_ANON_KEY=... \
-  -e SUPABASE_SERVICE_ROLE_KEY=... \
+  -e DATABASE_URL=postgresql://... \
   -e REDIS_URL=... \
   -e OPENAI_API_KEY=... \
   spark:latest
@@ -378,7 +361,7 @@ Currently uses placeholder authentication with headers:
 - `X-Tenant-ID`: Organization identifier
 - `X-User-ID`: User identifier
 
-**TODO**: Integrate with production auth system (Supabase Auth, Auth0, etc.)
+**TODO**: Integrate with production auth system (Auth0, etc.)
 
 ## Contributing
 
