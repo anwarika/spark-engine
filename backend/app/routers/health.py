@@ -1,5 +1,6 @@
 from fastapi import APIRouter
-from app.database import get_supabase, get_redis
+from app.database import get_storage, get_redis
+from app.storage import SupabaseStorage, PostgresStorage
 import logging
 
 logger = logging.getLogger(__name__)
@@ -9,8 +10,18 @@ router = APIRouter()
 @router.get("/health")
 async def health_check():
     try:
-        supabase = get_supabase()
+        storage = get_storage()
         redis_client = await get_redis()
+        
+        db_status = "connected" # Storage init usually implies connection or at least config validity
+        db_type = "unknown"
+        
+        if isinstance(storage, SupabaseStorage):
+            db_type = "supabase"
+            # potentially ping supabase?
+        elif isinstance(storage, PostgresStorage):
+            db_type = "postgres"
+            # potentially ping postgres?
 
         redis_status = "disconnected"
         if redis_client:
@@ -23,7 +34,8 @@ async def health_check():
         return {
             "status": "healthy",
             "services": {
-                "supabase": "connected",
+                "database": db_status,
+                "type": db_type,
                 "redis": redis_status
             }
         }

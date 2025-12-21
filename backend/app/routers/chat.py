@@ -4,7 +4,7 @@ from app.models import ChatMessage, ChatResponse
 from app.services.llm import LLMService
 from app.services.validator import CodeValidator
 from app.services.compiler import ComponentCompiler
-from app.database import get_supabase
+from app.database import get_storage
 from app.middleware.auth import get_tenant_id, get_user_id
 import logging
 import uuid
@@ -42,62 +42,36 @@ async def chat_message(message: ChatMessage, request: Request):
     
     tenant_id = get_tenant_id(request)
     user_id = get_user_id(request)
-    supabase = get_supabase()
-
-    try:
-        supabase.rpc(
-            'set_config',
-            {'setting': 'app.tenant_id', 'value': tenant_id}
-        ).execute()
-    except:
-        pass
+    storage = get_storage()
 
     # Time database session operations
     db_start = time.time()
-    session_result = supabase.table("chat_sessions").select("*").eq(
-        "session_id", message.session_id
-    ).execute()
-
-    if not session_result.data:
-        new_session = supabase.table("chat_sessions").insert({
-            "session_id": message.session_id,
-            "tenant_id": tenant_id,
-            "user_id": user_id,
-            "started_at": datetime.utcnow().isoformat(),
-            "last_activity_at": datetime.utcnow().isoformat()
-        }).execute()
-        session_db_id = new_session.data[0]["id"]
-    else:
-        session_db_id = session_result.data[0]["id"]
-        try:
-            supabase.table("chat_sessions").update({
-                "last_activity_at": datetime.utcnow().isoformat()
-            }).eq("id", session_db_id).execute()
-        except Exception as e:
-            logger.warning(f"Failed to update session last_activity_at: {e}")
+    try:
+        session_db_id = await storage.get_or_create_session(tenant_id, user_id, message.session_id)
+        await storage.update_session_activity(session_db_id)
+    except Exception as e:
+        logger.error(f"Session DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database session error")
+        
     timing_breakdown["db_session_ms"] = round((time.time() - db_start) * 1000, 2)
 
     # Time history fetch
     history_start = time.time()
-    messages_result = supabase.table("chat_messages").select("role, content").eq(
-        "session_id", session_db_id
-    ).order("created_at").limit(10).execute() if session_db_id else None
-
-    conversation_history = []
-    if messages_result and messages_result.data:
+    try:
+        history_data = await storage.get_chat_history(session_db_id)
         conversation_history = [
             {"role": msg["role"], "content": msg["content"]}
-            for msg in messages_result.data
+            for msg in history_data
         ]
+    except Exception as e:
+        logger.warning(f"Failed to fetch history: {e}")
+        conversation_history = []
+        
     timing_breakdown["db_history_ms"] = round((time.time() - history_start) * 1000, 2)
 
     # Save user message - non-blocking
     try:
-        supabase.table("chat_messages").insert({
-            "session_id": session_db_id,
-            "role": "user",
-            "content": message.message
-        }).execute()
+        await storage.save_chat_message(session_db_id, "user", message.message)
     except Exception as e:
         logger.warning(f"Failed to save user message to database: {e}")
 
@@ -125,13 +99,10 @@ async def chat_message(message: ChatMessage, request: Request):
             logger.error(f"Validation failed for code:\n{llm_response.content}")
             error_message = "Component validation failed:\n" + "\n".join(validation_result.errors)
             try:
-                supabase.table("chat_messages").insert({
-                    "session_id": session_db_id,
-                    "role": "assistant",
-                    "content": error_message,
-                    "llm_model": llm_service.model,
-                    "reasoning": llm_response.reasoning
-                }).execute()
+                await storage.save_chat_message(
+                    session_db_id, "assistant", error_message, 
+                    llm_model=llm_service.model, reasoning=llm_response.reasoning
+                )
             except Exception as e:
                 logger.warning(f"Failed to save validation error message to database: {e}")
 
@@ -151,13 +122,10 @@ async def chat_message(message: ChatMessage, request: Request):
         if not compilation_result.success:
             error_message = f"Component compilation failed: {compilation_result.error}"
             try:
-                supabase.table("chat_messages").insert({
-                    "session_id": session_db_id,
-                    "role": "assistant",
-                    "content": error_message,
-                    "llm_model": llm_service.model,
-                    "reasoning": llm_response.reasoning
-                }).execute()
+                await storage.save_chat_message(
+                    session_db_id, "assistant", error_message,
+                    llm_model=llm_service.model, reasoning=llm_response.reasoning
+                )
             except Exception as e:
                 logger.warning(f"Failed to save compilation error message to database: {e}")
 
@@ -176,21 +144,25 @@ async def chat_message(message: ChatMessage, request: Request):
             "text": f"Generated from: {message.message[:100]}",
             "request_start_timestamp_ms": request_start_timestamp_ms
         })
-        component_result = supabase.table("components").insert({
-            "tenant_id": tenant_id,
-            "user_id": user_id,
-            "name": component_name,
-            "description": description_with_metadata,
-            "solidjs_code": llm_response.content,
-            "code_hash": code_hash,
-            "validated": True,
-            "compiled": True,
-            "compiled_bundle": compilation_result.bundle,
-            "bundle_size_bytes": compilation_result.bundle_size,
-            "status": "active"
-        }).execute()
-
-        component_id = component_result.data[0]["id"]
+        
+        try:
+            component_id = await storage.create_component({
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "name": component_name,
+                "description": description_with_metadata,
+                "solidjs_code": llm_response.content,
+                "code_hash": code_hash,
+                "validated": True,
+                "compiled": True,
+                "compiled_bundle": compilation_result.bundle,
+                "bundle_size_bytes": compilation_result.bundle_size,
+                "status": "active"
+            })
+        except Exception as e:
+            logger.error(f"Failed to create component: {e}")
+            raise HTTPException(status_code=500, detail=f"Database component save failed: {e}")
+            
         timing_breakdown["db_save_component_ms"] = round((time.time() - db_save_start) * 1000, 2)
 
         logger.info(
@@ -201,14 +173,12 @@ async def chat_message(message: ChatMessage, request: Request):
     # Save assistant response - non-blocking
     db_message_start = time.time()
     try:
-        supabase.table("chat_messages").insert({
-            "session_id": session_db_id,
-            "role": "assistant",
-            "content": llm_response.content,
-            "component_id": component_id,
-            "llm_model": llm_service.model,
-            "reasoning": llm_response.reasoning
-        }).execute()
+        await storage.save_chat_message(
+            session_db_id, "assistant", llm_response.content,
+            component_id=component_id,
+            llm_model=llm_service.model,
+            reasoning=llm_response.reasoning
+        )
     except Exception as e:
         logger.warning(f"Failed to save assistant message to database: {e}")
     timing_breakdown["db_save_message_ms"] = round((time.time() - db_message_start) * 1000, 2)
@@ -268,12 +238,6 @@ async def chat_message(message: ChatMessage, request: Request):
 async def chat_message_stream(message: ChatMessage, request: Request):
     """
     Stream generation progress via Server-Sent Events (SSE).
-
-    Emits:
-      - event=progress: { step, status, ms? }
-      - event=microapp_ready: { component_id }
-      - event=done: { type, content, component_id?, reasoning?, timing }
-      - event=error: { message }
     """
 
     async def event_gen():
@@ -294,66 +258,40 @@ async def chat_message_stream(message: ChatMessage, request: Request):
 
             tenant_id = get_tenant_id(request)
             user_id = get_user_id(request)
-            supabase = get_supabase()
-
-            try:
-                supabase.rpc(
-                    'set_config',
-                    {'setting': 'app.tenant_id', 'value': tenant_id}
-                ).execute()
-            except Exception:
-                pass
+            storage = get_storage()
 
             # Session upsert
             yield _sse("progress", {"step": "db_session", "status": "start"})
             db_start = time.time()
-            session_result = supabase.table("chat_sessions").select("*").eq(
-                "session_id", message.session_id
-            ).execute()
+            try:
+                session_db_id = await storage.get_or_create_session(tenant_id, user_id, message.session_id)
+                await storage.update_session_activity(session_db_id)
+            except Exception as e:
+                 logger.error(f"Session error: {e}")
+                 yield _sse("error", {"message": "Database session error"})
+                 return
 
-            if not session_result.data:
-                new_session = supabase.table("chat_sessions").insert({
-                    "session_id": message.session_id,
-                    "tenant_id": tenant_id,
-                    "user_id": user_id,
-                    "started_at": datetime.utcnow().isoformat(),
-                    "last_activity_at": datetime.utcnow().isoformat()
-                }).execute()
-                session_db_id = new_session.data[0]["id"]
-            else:
-                session_db_id = session_result.data[0]["id"]
-                try:
-                    supabase.table("chat_sessions").update({
-                        "last_activity_at": datetime.utcnow().isoformat()
-                    }).eq("id", session_db_id).execute()
-                except Exception as e:
-                    logger.warning(f"Failed to update session last_activity_at: {e}")
             timing_breakdown["db_session_ms"] = round((time.time() - db_start) * 1000, 2)
             yield _sse("progress", {"step": "db_session", "status": "done", "ms": timing_breakdown["db_session_ms"]})
 
             # History fetch
             yield _sse("progress", {"step": "db_history", "status": "start"})
             history_start = time.time()
-            messages_result = supabase.table("chat_messages").select("role, content").eq(
-                "session_id", session_db_id
-            ).order("created_at").limit(10).execute() if session_db_id else None
-
-            conversation_history = []
-            if messages_result and messages_result.data:
+            try:
+                history_data = await storage.get_chat_history(session_db_id)
                 conversation_history = [
                     {"role": msg["role"], "content": msg["content"]}
-                    for msg in messages_result.data
+                    for msg in history_data
                 ]
+            except Exception:
+                conversation_history = []
+                
             timing_breakdown["db_history_ms"] = round((time.time() - history_start) * 1000, 2)
             yield _sse("progress", {"step": "db_history", "status": "done", "ms": timing_breakdown["db_history_ms"]})
 
             # Save user message (best-effort)
             try:
-                supabase.table("chat_messages").insert({
-                    "session_id": session_db_id,
-                    "role": "user",
-                    "content": message.message
-                }).execute()
+                await storage.save_chat_message(session_db_id, "user", message.message)
             except Exception as e:
                 logger.warning(f"Failed to save user message to database: {e}")
 
@@ -416,21 +354,26 @@ async def chat_message_stream(message: ChatMessage, request: Request):
                     "text": f"Generated from: {message.message[:100]}",
                     "request_start_timestamp_ms": request_start_timestamp_ms
                 })
-                component_result = supabase.table("components").insert({
-                    "tenant_id": tenant_id,
-                    "user_id": user_id,
-                    "name": component_name,
-                    "description": description_with_metadata,
-                    "solidjs_code": llm_response.content,
-                    "code_hash": code_hash,
-                    "validated": True,
-                    "compiled": True,
-                    "compiled_bundle": compilation_result.bundle,
-                    "bundle_size_bytes": compilation_result.bundle_size,
-                    "status": "active"
-                }).execute()
-
-                component_id = component_result.data[0]["id"]
+                
+                try:
+                    component_id = await storage.create_component({
+                        "tenant_id": tenant_id,
+                        "user_id": user_id,
+                        "name": component_name,
+                        "description": description_with_metadata,
+                        "solidjs_code": llm_response.content,
+                        "code_hash": code_hash,
+                        "validated": True,
+                        "compiled": True,
+                        "compiled_bundle": compilation_result.bundle,
+                        "bundle_size_bytes": compilation_result.bundle_size,
+                        "status": "active"
+                    })
+                except Exception as e:
+                     logger.error(f"Failed to save component: {e}")
+                     yield _sse("error", {"message": "Failed to save component"})
+                     return
+                
                 timing_breakdown["db_save_component_ms"] = round((time.time() - db_save_start) * 1000, 2)
                 yield _sse("progress", {"step": "db_save_component", "status": "done", "ms": timing_breakdown["db_save_component_ms"]})
                 yield _sse("microapp_ready", {"component_id": component_id})
@@ -439,14 +382,12 @@ async def chat_message_stream(message: ChatMessage, request: Request):
             yield _sse("progress", {"step": "db_save_message", "status": "start"})
             db_message_start = time.time()
             try:
-                supabase.table("chat_messages").insert({
-                    "session_id": session_db_id,
-                    "role": "assistant",
-                    "content": llm_response.content,
-                    "component_id": component_id,
-                    "llm_model": llm_service.model,
-                    "reasoning": llm_response.reasoning
-                }).execute()
+                await storage.save_chat_message(
+                    session_db_id, "assistant", llm_response.content,
+                    component_id=component_id,
+                    llm_model=llm_service.model,
+                    reasoning=llm_response.reasoning
+                )
             except Exception as e:
                 logger.warning(f"Failed to save assistant message to database: {e}")
             timing_breakdown["db_save_message_ms"] = round((time.time() - db_message_start) * 1000, 2)

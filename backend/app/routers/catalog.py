@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 import logging
 
-from app.database import get_supabase
+from app.database import get_storage
 from app.middleware.auth import get_tenant_id, get_user_id
 from app.services.compiler import ComponentCompiler
 
@@ -39,38 +39,20 @@ async def list_templates(
 ):
     """List available templates (own + public)."""
     tenant_id = get_tenant_id(request)
-    supabase = get_supabase()
+    storage = get_storage()
 
-    try:
-        supabase.rpc(
-            'set_config',
-            {'setting': 'app.tenant_id', 'value': tenant_id}
-        ).execute()
-    except:
-        pass
-
-    # Build query
-    query = supabase.table("component_templates").select(
-        "id, name, description, category, tags, code_hash, bundle_size_bytes, "
-        "is_public, usage_count, created_at, updated_at"
+    result = await storage.list_component_templates(
+        tenant_id=tenant_id, 
+        category=category, 
+        is_public=is_public, 
+        tag=tag, 
+        limit=limit, 
+        offset=offset
     )
 
-    # Apply filters
-    if category:
-        query = query.eq("category", category)
-    
-    if is_public is not None:
-        query = query.eq("is_public", is_public)
-    
-    if tag:
-        query = query.contains("tags", [tag])
-
-    # Execute query with pagination
-    result = query.order("usage_count", desc=True).range(offset, offset + limit - 1).execute()
-
     return {
-        "templates": result.data,
-        "total": len(result.data),
+        "templates": result["templates"],
+        "total": result["total"],
         "limit": limit,
         "offset": offset
     }
@@ -80,25 +62,20 @@ async def list_templates(
 async def get_template(template_id: str, request: Request):
     """Get a specific template by ID."""
     tenant_id = get_tenant_id(request)
-    supabase = get_supabase()
+    storage = get_storage()
 
-    try:
-        supabase.rpc(
-            'set_config',
-            {'setting': 'app.tenant_id', 'value': tenant_id}
-        ).execute()
-    except:
-        pass
+    template = await storage.get_component_template(template_id)
 
-    result = supabase.table("component_templates").select("*").eq("id", template_id).execute()
-
-    if not result.data:
+    if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    template = result.data[0]
-    
     # Check access: own template or public
-    if template["tenant_id"] != tenant_id and not template.get("is_public", False):
+    # Note: storage.get_component_template returns it regardless of tenant, 
+    # we enforce access here.
+    # Postgres returns strings for UUIDs, Supabase returns strings.
+    template_tenant = str(template.get("tenant_id"))
+    
+    if template_tenant != tenant_id and not template.get("is_public", False):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return template
@@ -109,15 +86,7 @@ async def save_template(request: Request, body: SaveTemplateRequest):
     """Save a component as a reusable template."""
     tenant_id = get_tenant_id(request)
     user_id = get_user_id(request)
-    supabase = get_supabase()
-
-    try:
-        supabase.rpc(
-            'set_config',
-            {'setting': 'app.tenant_id', 'value': tenant_id}
-        ).execute()
-    except:
-        pass
+    storage = get_storage()
 
     # Compute code hash
     code_hash = ComponentCompiler.compute_hash(body.solidjs_code)
@@ -133,8 +102,8 @@ async def save_template(request: Request, body: SaveTemplateRequest):
         bundle_size = compilation_result.bundle_size
 
     # Save to database
-    result = supabase.table("component_templates").insert({
-        "tenant_id": tenant_id,
+    data = {
+        "tenant_id": tenant_id, # Storage might require this in args but good to have in data
         "user_id": user_id,
         "name": body.name,
         "description": body.description,
@@ -144,15 +113,16 @@ async def save_template(request: Request, body: SaveTemplateRequest):
         "code_hash": code_hash,
         "compiled_bundle": compiled_bundle,
         "bundle_size_bytes": bundle_size,
-        "is_public": body.is_public,
-        "usage_count": 0
-    }).execute()
+        "is_public": body.is_public
+    }
+    
+    template = await storage.create_or_update_template(tenant_id, data)
 
-    logger.info(f"Saved template: {body.name} (id={result.data[0]['id']})")
+    logger.info(f"Saved template: {body.name} (id={template.get('id')})")
 
     return {
         "status": "success",
-        "template": result.data[0]
+        "template": template
     }
 
 
@@ -163,35 +133,21 @@ async def use_template(template_id: str, request: Request):
     Returns the template's SolidJS code for generation.
     """
     tenant_id = get_tenant_id(request)
-    supabase = get_supabase()
-
-    try:
-        supabase.rpc(
-            'set_config',
-            {'setting': 'app.tenant_id', 'value': tenant_id}
-        ).execute()
-    except:
-        pass
+    storage = get_storage()
 
     # Get template
-    result = supabase.table("component_templates").select("*").eq("id", template_id).execute()
+    template = await storage.get_component_template(template_id)
 
-    if not result.data:
+    if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    template = result.data[0]
-    
     # Check access
-    if template["tenant_id"] != tenant_id and not template.get("is_public", False):
+    template_tenant = str(template.get("tenant_id"))
+    if template_tenant != tenant_id and not template.get("is_public", False):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Increment usage count
-    try:
-        supabase.table("component_templates").update({
-            "usage_count": template["usage_count"] + 1
-        }).eq("id", template_id).execute()
-    except Exception as e:
-        logger.warning(f"Failed to increment usage count: {e}")
+    await storage.increment_template_usage(template_id)
 
     return {
         "status": "success",
@@ -210,27 +166,19 @@ async def use_template(template_id: str, request: Request):
 async def delete_template(template_id: str, request: Request):
     """Delete a template (own templates only)."""
     tenant_id = get_tenant_id(request)
-    supabase = get_supabase()
+    storage = get_storage()
 
-    try:
-        supabase.rpc(
-            'set_config',
-            {'setting': 'app.tenant_id', 'value': tenant_id}
-        ).execute()
-    except:
-        pass
+    # Verify ownership handled by storage.delete_template checking tenant_id condition?
+    # No, storage.delete_template(template_id, tenant_id) enforces it.
+    
+    success = await storage.delete_template(template_id, tenant_id)
 
-    # Verify ownership
-    result = supabase.table("component_templates").select("tenant_id").eq("id", template_id).execute()
-
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Template not found")
-
-    if result.data[0]["tenant_id"] != tenant_id:
-        raise HTTPException(status_code=403, detail="Can only delete own templates")
-
-    # Delete
-    supabase.table("component_templates").delete().eq("id", template_id).execute()
+    if not success:
+        # Could be not found or not owned.
+        # Check existence first to give better error?
+        # For now, generic 404 is okay or we check get_template first.
+        # Let's trust storage returns false if nothing deleted.
+        raise HTTPException(status_code=404, detail="Template not found or access denied")
 
     logger.info(f"Deleted template: {template_id}")
 
@@ -250,4 +198,3 @@ async def list_categories(request: Request):
             {"id": "custom", "name": "Custom", "description": "Custom components"}
         ]
     }
-

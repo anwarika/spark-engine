@@ -3,9 +3,17 @@ from typing import Optional
 
 
 class Settings(BaseSettings):
-    supabase_url: str
-    supabase_anon_key: str
-    supabase_service_role_key: str = ""
+    # Database Mode: 'supabase' or 'postgres'
+    database_mode: str = "postgres"
+    
+    # Postgres Config
+    database_url: str = "postgresql://postgres:password@localhost:5432/spark"
+    
+    # Supabase Config
+    supabase_url: Optional[str] = None
+    supabase_anon_key: Optional[str] = None
+    supabase_service_role_key: Optional[str] = None
+    
     redis_url: str = "redis://localhost:6379"
     
     # LLM Settings

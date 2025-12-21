@@ -38,12 +38,11 @@ class ChatMessage(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    type: Literal["text", "component", "appsmith_app"]
+    type: Literal["text", "component"]
     content: str
     component_id: Optional[uuid.UUID] = None
     reasoning: str = ""
-    microapp_kind: Optional[Literal["spark_component", "appsmith_app"]] = None
-    appsmith_path: Optional[str] = None
+    # microapp_kind and appsmith_path removed as deprecated
 
 
 class ValidationResult(BaseModel):

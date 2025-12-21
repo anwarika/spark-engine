@@ -6,7 +6,7 @@ from app.services.llm import LLMService
 from app.services.registry import RegistryService
 from app.services.compiler import ComponentCompiler
 from app.services.validator import CodeValidator
-from app.database import get_supabase
+from app.database import get_storage
 from app.middleware.auth import get_tenant_id, get_user_id
 import datetime
 import json
@@ -37,12 +37,12 @@ class A2AResponse(BaseModel):
 async def generate_microapp(request: Request, body: A2AGenerateRequest):
     tenant_id = get_tenant_id(request)
     user_id = get_user_id(request)
+    storage = get_storage()
     
     # 1. Fetch Registry Context
     registry_context = await registry_service.get_registry_context(tenant_id)
     
     # 2. Analyze Phase: Does LLM have enough info?
-    # We construct a specific prompt for analysis
     analysis_system_prompt = """You are an A2A (Agent-to-Agent) negotiation engine.
 Your goal is to determine if the provided data context is sufficient to build the requested microapp.
 
@@ -66,24 +66,17 @@ If the user provides data (e.g. "sales": [...]), status is "sufficient".
         {"role": "user", "content": f"Prompt: {body.prompt}\nData Context: {json.dumps(body.data_context or {})}"}
     ]
     
-    # We reuse LLMService but might need a raw generation method or just use the standard one
-    # For now, let's use the standard generate_response but we need to override the system prompt
-    # The current LLMService is tightly coupled to component generation.
-    # We'll do a direct call via the provider for this analysis step.
-    
     try:
         analysis_response = await llm_service.provider.generate_response(
             analysis_messages, 
             analysis_system_prompt,
             temperature=0.1
         )
-        # Parse the text response (BaseLLMProvider returns ChatResponse object)
         try:
             analysis = json.loads(analysis_response.content)
         except:
-            # Fallback if not valid JSON
             logger.warning("Failed to parse analysis JSON")
-            analysis = {"status": "sufficient"} # Optimistic fallback
+            analysis = {"status": "sufficient"} 
             
         if analysis.get("status") == "missing_data":
             return A2AResponse(
@@ -94,10 +87,8 @@ If the user provides data (e.g. "sales": [...]), status is "sufficient".
             
     except Exception as e:
         logger.error(f"Analysis failed: {e}")
-        # Proceed to generation as fallback
     
     # 3. Generation Phase
-    # Inject data context into the system prompt or user message
     context_str = ""
     if body.data_context:
         context_str += f"\nDATA CONTEXT: {json.dumps(body.data_context)}\n"
@@ -114,45 +105,42 @@ If the user provides data (e.g. "sales": [...]), status is "sufficient".
     if response.type != "component":
         return A2AResponse(
             status="error",
-            message=response.content # Return the text response as message
+            message=response.content 
         )
         
-    # 4. Compilation & Save (Reuse logic from chat.py - ideally refactored into service)
-    # For brevity, duplicating critical save logic here
+    # 4. Compilation & Save
     code_hash = ComponentCompiler.compute_hash(response.content)
     compilation_result = await compiler.compile(response.content, code_hash)
     
     if not compilation_result.success:
         return A2AResponse(status="error", message=f"Compilation failed: {compilation_result.error}")
 
-    supabase = get_supabase()
-    try:
-        supabase.rpc('set_config', {'setting': 'app.tenant_id', 'value': tenant_id}).execute()
-    except:
-        pass
-
     component_name = f"A2A-Gen-{datetime.datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
     description = json.dumps({"prompt": body.prompt, "source": "a2a"})
     
-    res = supabase.table("components").insert({
-        "tenant_id": tenant_id,
-        "user_id": user_id,
-        "name": component_name,
-        "description": description,
-        "solidjs_code": response.content,
-        "code_hash": code_hash,
-        "validated": True,
-        "compiled": True,
-        "compiled_bundle": compilation_result.bundle,
-        "bundle_size_bytes": compilation_result.bundle_size,
-        "status": "active"
-    }).execute()
-    
-    component_id = res.data[0]["id"]
+    try:
+        component_id = await storage.create_component({
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "name": component_name,
+            "description": description,
+            "solidjs_code": response.content,
+            "code_hash": code_hash,
+            "validated": True,
+            "compiled": True,
+            "compiled_bundle": compilation_result.bundle,
+            "bundle_size_bytes": compilation_result.bundle_size,
+            "status": "active"
+        })
+    except Exception as e:
+        logger.error(f"Failed to save component: {e}")
+        return A2AResponse(status="error", message="Failed to save component")
     
     # Construct Render URL
     # Assuming request.base_url is correct, or use a configured public URL
-    render_url = f"{request.base_url}api/components/{component_id}/iframe"
+    # Removing trailing slash if present
+    base = str(request.base_url).rstrip("/")
+    render_url = f"{base}/api/components/{component_id}/iframe"
     
     return A2AResponse(
         status="success",
@@ -166,18 +154,12 @@ async def quick_render(request: Request, prompt: str):
     Magic Link Endpoint: Generates and returns a microapp wrapper HTML directly.
     Usage: GET /api/a2a/render?prompt=Visualize+sales+data
     """
-    # 1. Reuse generation logic (simplified)
-    # Note: We skip the "Negotiation" phase here for speed and simplicity.
-    # It assumes the prompt + implicit mocks are enough.
-    
     try:
         # Generate Component
         gen_req = A2AGenerateRequest(prompt=prompt)
         result = await generate_microapp(request, gen_req)
         
         if result.status == "success" and result.microapp_url:
-            # Return a wrapper page that embeds the iframe
-            # We use absolute URL for the iframe src
             iframe_src = str(result.microapp_url)
             
             html_content = f"""
