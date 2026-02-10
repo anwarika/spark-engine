@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request, HTTPException, Response
 from app.models import ComponentFeedback
+from app.models.data_schema import DataSwapRequest
 from app.database import get_storage
 from app.middleware.auth import get_tenant_id, get_user_id
 from typing import Optional
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 from app.services.mock_data import MockSpec, generate_mock_dataset
+from app.database import get_redis
 
 
 @router.get("")
@@ -123,20 +125,10 @@ async def get_component_iframe(component_id: str, request: Request):
     "imports": {{
       "solid-js": "https://esm.sh/solid-js@1.8.7",
       "solid-js/web": "https://esm.sh/solid-js@1.8.7/web",
-      "solid-js/store": "https://esm.sh/solid-js@1.8.7/store"
+      "solid-js/store": "https://esm.sh/solid-js@1.8.7/store",
+      "apexcharts": "https://cdn.jsdelivr.net/npm/apexcharts@3.54.1/dist/apexcharts.esm.js"
     }}
   }}
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script>
-    // Set up Chart.js globally
-    window.Chart = window.Chart || Chart;
-    
-    // Set up ApexCharts globals (for future use)
-    window.Apex = window.Apex || {{}}; 
-    if (!Array.isArray(window.Apex._chartInstances)) {{
-      window.Apex._chartInstances = [];
-    }}
   </script>
   <script>
     // Global error handler
@@ -165,23 +157,18 @@ async def get_component_iframe(component_id: str, request: Request):
     window.__USER_ID = '{user_id}';
     window.__API_BASE = window.location.origin;
     window.__COMPONENT_CREATED_AT = {component_created_timestamp if component_created_timestamp else 'null'};
-    
-    // PostMessage handler for A2A communication
-    window.addEventListener('message', (event) => {
-        // Handle incoming messages from parent
-        // console.log('Received message from parent:', event.data);
-    });
+    window.__DATA_MODE = 'sample';
 
     // Helper to send events to parent
-    window.sendToParent = (type, payload) => {
-        if (window.parent && window.parent !== window) {
-            window.parent.postMessage({
+    window.sendToParent = (type, payload) => {{
+        if (window.parent && window.parent !== window) {{
+            window.parent.postMessage({{
                 type: type,
                 payload: payload,
                 componentId: window.__COMPONENT_ID
-            }, '*');
-        }
-    };
+            }}, '*');
+        }}
+    }};
     
     console.log('Component environment initialized:', {{
       componentId: window.__COMPONENT_ID,
@@ -196,8 +183,28 @@ async def get_component_iframe(component_id: str, request: Request):
       performance.mark('component-iframe-start');
     }}
     
-    // Import SolidJS render and the component module
+    // Import SolidJS and Data Bridge setup
     import {{ render }} from 'solid-js/web';
+    import {{ createContext, createSignal }} from 'solid-js';
+    
+    // Data Bridge: context for sample/real data swap
+    const DataContext = createContext({{ data: null, mode: 'sample' }});
+    const [bridgeData, setBridgeData] = createSignal(null);
+    const [bridgeMode, setBridgeMode] = createSignal('sample');
+    
+    window.__SET_DATA_BRIDGE = function(mode, data) {{
+      setBridgeMode(mode || 'sample');
+      setBridgeData(data || null);
+    }};
+    window.DataContext = DataContext;
+    
+    // PostMessage handler for data swap - also updates __DATA_MODE for template refetch
+    window.addEventListener('message', function(event) {{
+      if (event.data && event.data.type === 'data_swap') {{
+        window.__SET_DATA_BRIDGE(event.data.mode || 'real', event.data.data);
+        window.__DATA_MODE = event.data.mode || 'real';
+      }}
+    }});
     
     try {{
       // Dynamically import the component artifact (ESM module)
@@ -227,8 +234,14 @@ async def get_component_iframe(component_id: str, request: Request):
         performance.mark('component-render-start');
       }}
       
-      // Render the component
-      render(componentFunc, root);
+      // Render the component wrapped in DataProvider (Data Bridge context)
+      const Provider = DataContext.Provider;
+      render(function() {{
+        return Provider({{
+          value: {{ data: bridgeData, mode: bridgeMode }},
+          get children() {{ return componentFunc ? componentFunc() : null; }}
+        }});
+      }}, root);
       
       // Mark render complete
       if (window.performance && window.performance.mark) {{
@@ -306,9 +319,32 @@ async def get_component_data(component_id: str, request: Request, body: dict = N
     # Request body example:
     # { "mock": { "profile": "ecommerce", "scale": "large", "seed": 42, "days": 365, "latency_ms": 150 } }
     try:
-        mock_req = (body or {}).get("mock") if isinstance(body, dict) else None
+        body_dict = body if isinstance(body, dict) else {}
+        mock_req = body_dict.get("mock")
+        data_mode = body_dict.get("data_mode", "sample")
     except Exception:
         mock_req = None
+        data_mode = "sample"
+
+    # Data Bridge: return stored real data when mode=real
+    if data_mode == "real":
+        redis_client = await get_redis()
+        if redis_client:
+            try:
+                cache_key = f"databridge:{tenant_id}:{component_id}:real"
+                stored = await redis_client.get(cache_key)
+                if stored:
+                    data = json.loads(stored)
+                    data["meta"] = data.get("meta", {})
+                    data["meta"]["data_mode"] = "real"
+                    data["meta"]["requested_by"] = {
+                        "tenant_id": tenant_id,
+                        "user_id": user_id,
+                        "component_id": component_id,
+                    }
+                    return data
+            except Exception as e:
+                logger.warning(f"Redis read for real data failed: {e}")
 
     if isinstance(mock_req, dict):
         # Generate cache key from mock spec
@@ -397,6 +433,34 @@ async def get_component_data(component_id: str, request: Request, body: dict = N
 
     logger.info(f"Returning mock data with keys: {list(mock_data.keys())}")
     return mock_data
+
+
+@router.post("/{component_id}/data/swap")
+async def swap_component_data(component_id: str, request: Request, body: Optional[DataSwapRequest] = None):
+    """Data Bridge: Store real data for a component to enable sample->real swap."""
+    req = body or DataSwapRequest()
+    tenant_id = get_tenant_id(request)
+    storage = get_storage()
+
+    component = await storage.get_component(component_id, tenant_id)
+    if not component:
+        raise HTTPException(status_code=404, detail="Component not found")
+
+    mode = req.mode
+    data = req.data
+
+    if mode == "real" and data is not None:
+        redis_client = await get_redis()
+        cache_key = f"databridge:{tenant_id}:{component_id}:real"
+        if redis_client:
+            try:
+                await redis_client.setex(cache_key, 3600, json.dumps(data))
+                logger.info(f"Stored real data for component={component_id}")
+            except Exception as e:
+                logger.warning(f"Redis write for data swap failed: {e}")
+        return {"status": "ok", "mode": "real"}
+
+    return {"status": "ok", "mode": mode}
 
 
 @router.put("/{component_id}/feedback")

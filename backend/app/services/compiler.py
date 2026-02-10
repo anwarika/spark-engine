@@ -28,7 +28,7 @@ class ComponentCompiler:
             "jsxImportSource": "solid-js",
             "treeShaking": True,
             # External dependencies loaded via CDN in iframe
-            "external": ["solid-js", "solid-js/web", "solid-js/store", "chart.js"]
+            "external": ["solid-js", "solid-js/web", "solid-js/store", "apexcharts"]
         }
         self._ensure_workspace()
     
@@ -48,8 +48,7 @@ class ComponentCompiler:
                 "babel-preset-solid": "^1.8.16",
                 "@babel/core": "^7.24.0",
                 "@babel/cli": "^7.24.0",
-                "apexcharts": "^4.2.0",
-                "chart.js": "^4.4.1"
+                "apexcharts": "^3.54.1"
             }
             with open(package_json, "w") as f:
                 json.dump({"dependencies": dependencies}, f)
@@ -184,6 +183,7 @@ class ComponentCompiler:
             "--external:solid-js",
             "--external:solid-js/web",
             "--external:solid-js/store",
+            "--external:apexcharts",
             f"--outfile={output_file}"
         ]
 

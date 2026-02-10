@@ -1,6 +1,11 @@
 # Spark - AI-Powered Micro App Generation Service
 
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 Spark is a standalone service that generates, validates, and serves dynamic Solid.js micro-apps through a chat interface. Users interact with an LLM that decides whether to respond with text or generate a Solid.js component. Generated components are compiled, validated, sandboxed, cached, and served to the frontend.
+
+**🆕 What's New in v2.0:** ApexCharts integration, Data Bridge pattern for sample→real data swapping, and 3 new chart templates. See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## Developer Quickstart (5 Minutes)
 
@@ -35,14 +40,24 @@ Want to add "Generate UI" capabilities to your own AI agent or chat app?
 
     See [Integration Guide](docs/INTEGRATION.md) for LangChain, Vercel AI SDK, and OpenAI Actions examples.
 
+    **📖 Documentation:**
+    - [Migration Guide v1.x → v2.0](docs/MIGRATION_V2.md)
+    - [Data Bridge Pattern](docs/DATA_BRIDGE.md)
+    - [Content-Addressable Generation (CAG)](docs/CAG.md)
+    - [Changelog](CHANGELOG.md)
+
 ## Features
 
 - **LLM-Powered Generation**: OpenAI GPT-4o-mini generates optimized Solid.js components on demand
+- **Content-Addressable Generation (CAG)**: Intelligent deduplication prevents regenerating identical components (~1500ms + $0.001-0.003 saved per hit)
+- **Modern Charts**: ApexCharts integration for beautiful, interactive visualizations (line, bar, area, donut, heatmap, mixed)
+- **Data Bridge**: Sample → real data swapping via Solid.js context for seamless data transitions
 - **Multi-Layered Security**: AST analysis, forbidden API detection, and sandboxed execution
-- **High Performance**: Redis caching, esbuild compilation, and Solid.js's minimal runtime
+- **High Performance**: Redis caching, esbuild compilation, CAG reuse, and Solid.js's minimal runtime
 - **Multi-Tenant Architecture**: Complete tenant isolation with PostgreSQL RLS
-- **Chat Interface**: Clean React + DaisyUI UI for natural interaction
+- **Chat Interface**: Clean React + DaisyUI UI for natural interaction with data mode toggle
 - **Component Registry**: Store, version, and manage generated components
+- **9 Pre-Built Templates**: Optimized templates for common visualization patterns
 
 ## Tech Stack
 
@@ -54,8 +69,10 @@ Want to add "Generate UI" capabilities to your own AI agent or chat app?
 
 ### Generated Micro Apps
 - Solid.js + TypeScript
+- ApexCharts for modern visualizations
 - DaisyUI for styling
 - Sandboxed iframe execution
+- Data Bridge pattern (sample → real data swap)
 
 ### Backend
 - FastAPI + Python 3.11+
@@ -232,7 +249,22 @@ The database schema is automatically created via migration scripts in `database/
 "Build a KPI dashboard with 3 metrics"
 "Make a filterable product list"
 "Generate a bar chart visualization"
+"Show revenue breakdown as a donut chart"
+"Create a heatmap of activity over time"
+"Compare revenue and orders with a mixed chart"
 ```
+
+### Available Component Templates
+
+1. **StatCard** - KPI cards with metrics and trends
+2. **DataTable** - Filterable, sortable tables
+3. **LineChart** - Time-series line charts (ApexCharts)
+4. **BarChart** - Comparison bar charts (ApexCharts)
+5. **DonutChart** - Category breakdown visualization (ApexCharts)
+6. **HeatmapChart** - Time-series intensity heatmap (ApexCharts)
+7. **MixedChart** - Combined line + bar charts (ApexCharts)
+8. **ListWithSearch** - Searchable item lists
+9. **MetricsDashboard** - Multi-metric dashboard with charts
 
 ### Component Generation Flow
 
@@ -258,7 +290,8 @@ The database schema is automatically created via migration scripts in `database/
 - `GET /api/components/{id}` - Get component metadata
 - `GET /api/components/{id}/artifact` - Download compiled JS
 - `GET /api/components/{id}/iframe` - Get iframe HTML
-- `POST /api/components/{id}/data` - Data endpoint for iframes
+- `POST /api/components/{id}/data` - Data endpoint for iframes (supports `data_mode: "sample" | "real"`)
+- `POST /api/components/{id}/data/swap` - Store real data for sample→real swap
 - `PUT /api/components/{id}/feedback` - Submit user feedback
 - `PUT /api/components/{id}/archive` - Archive component
 
@@ -275,7 +308,7 @@ Multi-layered validation pipeline:
 
 1. **Syntax Check**: Parse JSX/Solid.js code
 2. **AST Analysis**: Scan for forbidden patterns
-3. **Import Validation**: Only allow solid-js imports
+3. **Import Validation**: Only allow solid-js and apexcharts imports
 4. **Size Check**: Enforce 50KB source limit
 
 ### Forbidden APIs
@@ -297,12 +330,37 @@ Components run in iframe with:
 - No access to parent window
 - Secure token-based authentication
 
+## Data Bridge Pattern
+
+The Data Bridge enables seamless sample → real data swapping:
+
+1. **Sample Mode** (default): Components fetch mock data for rapid prototyping
+2. **Real Mode**: Switch to production data without regenerating components
+
+**Workflow:**
+```bash
+# 1. Store real data for a component
+curl -X POST /api/components/{id}/data/swap \
+  -H "Content-Type: application/json" \
+  -d '{"mode": "real", "data": {"revenue": [...], "metrics": [...]}}'
+
+# 2. Component automatically refetches when mode changes (via UI toggle or postMessage)
+```
+
+**Frontend Integration:**
+- Sample/Real toggle in the iframe component
+- `postMessage({ type: 'data_swap', mode: 'real' })` triggers refetch
+- Components use `createResource` with reactive source for automatic updates
+
 ## Performance Targets
 
 - Component generation: < 2s (P95)
 - Compilation time: 100-300ms
-- Compiled bundle: 10-20KB
+- Compiled bundle: 10-20KB (templates: 10-15KB)
+- ApexCharts CDN: ~45KB gzipped (cached)
 - Cache hit latency: < 50ms
+- Chart render time: < 300ms
+- Data swap latency: < 100ms
 - Time to interactive: < 150ms
 
 ## Monitoring
@@ -365,13 +423,70 @@ Currently uses placeholder authentication with headers:
 
 ## Contributing
 
-This is a reference implementation. To extend:
+We welcome contributions! Here's how to get involved:
 
-1. Add more LLM providers (OpenAI, etc.)
-2. Enhance component library with pre-built templates
-3. Add real-time collaboration features
-4. Implement component versioning
-5. Create admin dashboard for monitoring
+### Reporting Issues
+
+- **Bug Reports**: Open an issue with steps to reproduce, expected behavior, and actual behavior
+- **Feature Requests**: Describe the problem and proposed solution
+- **Security Issues**: Email security@kaatu.ai (do NOT open public issues)
+
+### Pull Requests
+
+1. **Fork & Branch**: Create a feature branch from `main`
+   ```bash
+   git checkout -b feature/my-feature
+   ```
+
+2. **Make Changes**: Follow existing code style and patterns
+   - Backend: Black formatter, type hints, docstrings
+   - Frontend: ESLint, Prettier, TypeScript strict mode
+
+3. **Test**: Ensure all tests pass
+   ```bash
+   # Backend tests
+   cd backend && pytest
+   
+   # Frontend tests
+   cd frontend && npm test
+   ```
+
+4. **Commit**: Use conventional commits
+   - `feat:` New feature
+   - `fix:` Bug fix
+   - `docs:` Documentation only
+   - `refactor:` Code refactoring
+   - `test:` Adding tests
+   
+   Example: `feat: add real-time data streaming support`
+
+5. **Push & PR**: Push to your fork and open a pull request
+   - Describe what changed and why
+   - Reference related issues
+   - Add screenshots for UI changes
+
+### Development Setup
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed setup instructions.
+
+### Areas for Contribution
+
+**High Priority:**
+- Add more LLM providers (Anthropic Claude, Google Gemini)
+- Enhance component library with new templates
+- Add WebSocket support for real-time data streaming
+- Implement component versioning and rollback
+- Create admin dashboard for monitoring
+
+**Good First Issues:**
+- Documentation improvements
+- Add tests for existing features
+- UI/UX enhancements
+- Performance optimizations
+
+### Code of Conduct
+
+Be respectful, inclusive, and constructive. Harassment-free experience for everyone.
 
 ## License
 

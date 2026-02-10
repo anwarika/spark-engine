@@ -76,6 +76,14 @@ class Storage(ABC):
     @abstractmethod
     async def delete_template(self, template_id: str, tenant_id: str) -> bool:
         pass
+    
+    @abstractmethod
+    async def find_component_by_content_hash(self, tenant_id: str, content_hash: str) -> Optional[Dict[str, Any]]:
+        """
+        Find an existing component by content hash (CAG lookup).
+        Returns the most recently created active component matching the hash.
+        """
+        pass
 
 
 class SupabaseStorage(Storage):
@@ -458,3 +466,25 @@ class PostgresStorage(Storage):
             # We must check tenant_id
             result = await conn.execute("DELETE FROM component_templates WHERE id = $1::uuid AND tenant_id = $2::uuid", template_id, tenant_id)
             return "DELETE 0" not in result
+    
+    async def find_component_by_content_hash(self, tenant_id: str, content_hash: str) -> Optional[Dict[str, Any]]:
+        """Find existing component by content hash for CAG reuse"""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT * FROM components 
+                WHERE tenant_id = $1 
+                  AND content_hash = $2 
+                  AND status = 'active' 
+                  AND compiled = TRUE
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, tenant_id, content_hash)
+            
+            if row:
+                d = dict(row)
+                d['id'] = str(d['id'])
+                d['created_at'] = d['created_at'].isoformat() if d['created_at'] else None
+                d['updated_at'] = d['updated_at'].isoformat() if d['updated_at'] else None
+                return d
+            return None

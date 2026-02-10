@@ -25,16 +25,17 @@ STAT_CARD_TEMPLATE = ComponentTemplate(
     code="""import { createSignal, createResource } from 'solid-js';
 
 async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
   const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' } })
+    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' }, data_mode: dataMode })
   });
   return response.json();
 }
 
 export default function StatCard() {
-  const [data] = createResource(fetchData);
+  const [data] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
   
   const formatValue = (val) => {
     if (typeof val === 'number') {
@@ -91,16 +92,17 @@ DATA_TABLE_TEMPLATE = ComponentTemplate(
     code="""import { createSignal, createResource, For, Show } from 'solid-js';
 
 async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
   const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' } })
+    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' }, data_mode: dataMode })
   });
   return response.json();
 }
 
 export default function DataTable() {
-  const [apiData] = createResource(fetchData);
+  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
   const [filter, setFilter] = createSignal('');
   const [sortField, setSortField] = createSignal('{{DEFAULT_SORT}}');
   const [sortDir, setSortDir] = createSignal('asc');
@@ -177,163 +179,110 @@ export default function DataTable() {
 )
 
 
-# LineChart Template - Time series visualization
+# LineChart Template - Time series visualization (ApexCharts)
 LINE_CHART_TEMPLATE = ComponentTemplate(
     name="LineChart",
     category="chart",
     description="Time series line chart for trends",
     tags=["chart", "line", "timeseries", "trend"],
     data_requirements=["date_field", "value_field"],
-    code="""import { createSignal, createResource, onMount } from 'solid-js';
+    code="""import { createResource, createEffect, onCleanup } from 'solid-js';
+import ApexCharts from 'apexcharts';
 
 async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
   const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium', days: 90 } })
+    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium', days: 90 }, data_mode: dataMode })
   });
   return response.json();
 }
 
 export default function LineChart() {
-  const [apiData] = createResource(fetchData);
+  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
   let chartRef;
-  
-  onMount(function() {
-    // Chart.js is available globally as window.Chart
-    const Chart = window.Chart;
-    if (!Chart) {
-      console.error('Chart.js not available');
-      return;
-    }
-    
-    const renderChart = () => {
-      if (!apiData() || !apiData().metrics) return;
-      
-      const ctx = chartRef.getContext('2d');
-      const metrics = apiData().metrics;
-      
-      new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: metrics.map(function(m) { return m.{{DATE_FIELD}}; }),
-            datasets: [{
-              label: '{{METRIC_LABEL}}',
-              data: metrics.map(function(m) { return m.{{VALUE_FIELD}}; }),
-              borderColor: 'rgb(75, 192, 192)',
-              tension: 0.1,
-              fill: false
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: {
-                display: true,
-                position: 'top'
-              }
-            },
-            scales: {
-              y: {
-                beginAtZero: true
-              }
-            }
-          }
-        });
-      };
-      
-      if (apiData()) renderChart();
-    });
+  let chartInstance;
+
+  createEffect(function() {
+    if (!apiData() || !apiData().metrics || !chartRef) return;
+    const metrics = apiData().metrics;
+    const options = {
+      chart: { type: 'line', toolbar: { show: false } },
+      stroke: { curve: 'smooth', width: 2 },
+      series: [{ name: '{{METRIC_LABEL}}', data: metrics.map(function(m) { return m.{{VALUE_FIELD}}; }) }],
+      xaxis: { categories: metrics.map(function(m) { return m.{{DATE_FIELD}}; }) },
+      yaxis: { min: 0 },
+      colors: ['#22c55e']
+    };
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new ApexCharts(chartRef, options);
+    chartInstance.render();
   });
-  
+
+  onCleanup(function() {
+    if (chartInstance) chartInstance.destroy();
+  });
+
   return (
     <div class="p-6">
       <h2 class="text-2xl font-bold mb-4">{{CHART_TITLE}}</h2>
-      <div style="height: 400px;">
-        <canvas ref={chartRef}></canvas>
-      </div>
+      <div ref={chartRef} style="height: 400px;"></div>
     </div>
   );
 }"""
 )
 
 
-# BarChart Template - Comparison visualization
+# BarChart Template - Comparison visualization (ApexCharts)
 BAR_CHART_TEMPLATE = ComponentTemplate(
     name="BarChart",
     category="chart",
     description="Bar chart for comparisons",
     tags=["chart", "bar", "comparison"],
     data_requirements=["category_field", "value_field"],
-    code="""import { createSignal, createResource, onMount } from 'solid-js';
+    code="""import { createResource, createEffect, onCleanup } from 'solid-js';
+import ApexCharts from 'apexcharts';
 
 async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
   const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' } })
+    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' }, data_mode: dataMode })
   });
   return response.json();
 }
 
 export default function BarChart() {
-  const [apiData] = createResource(fetchData);
+  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
   let chartRef;
-  
-  onMount(function() {
-    // Chart.js is available globally as window.Chart
-    const Chart = window.Chart;
-    if (!Chart) {
-      console.error('Chart.js not available');
-      return;
-    }
-    
-    const renderChart = () => {
-      if (!apiData() || !apiData().{{DATA_ARRAY}}) return;
-      
-      const ctx = chartRef.getContext('2d');
-      const items = apiData().{{DATA_ARRAY}}.slice(0, 10);
-      
-      new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels: items.map(function(item) { return item.{{CATEGORY_FIELD}}; }),
-            datasets: [{
-              label: '{{VALUE_LABEL}}',
-              data: items.map(function(item) { return item.{{VALUE_FIELD}}; }),
-              backgroundColor: 'rgba(54, 162, 235, 0.5)',
-              borderColor: 'rgba(54, 162, 235, 1)',
-              borderWidth: 1
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: {
-                display: false
-              }
-            },
-            scales: {
-              y: {
-                beginAtZero: true
-              }
-            }
-          }
-        });
-      };
-      
-      if (apiData()) renderChart();
-    });
+  let chartInstance;
+
+  createEffect(function() {
+    if (!apiData() || !apiData().{{DATA_ARRAY}} || !chartRef) return;
+    const items = apiData().{{DATA_ARRAY}}.slice(0, 10);
+    const options = {
+      chart: { type: 'bar', toolbar: { show: false } },
+      plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
+      series: [{ name: '{{VALUE_LABEL}}', data: items.map(function(item) { return item.{{VALUE_FIELD}}; }) }],
+      xaxis: { categories: items.map(function(item) { return item.{{CATEGORY_FIELD}}; }) },
+      yaxis: { min: 0 },
+      colors: ['#3b82f6']
+    };
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new ApexCharts(chartRef, options);
+    chartInstance.render();
   });
-  
+
+  onCleanup(function() {
+    if (chartInstance) chartInstance.destroy();
+  });
+
   return (
     <div class="p-6">
       <h2 class="text-2xl font-bold mb-4">{{CHART_TITLE}}</h2>
-      <div style="height: 400px;">
-        <canvas ref={chartRef}></canvas>
-      </div>
+      <div ref={chartRef} style="height: 400px;"></div>
     </div>
   );
 }"""
@@ -350,16 +299,17 @@ LIST_WITH_SEARCH_TEMPLATE = ComponentTemplate(
     code="""import { createSignal, createResource, For, Show } from 'solid-js';
 
 async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
   const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' } })
+    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' }, data_mode: dataMode })
   });
   return response.json();
 }
 
 export default function ListWithSearch() {
-  const [apiData] = createResource(fetchData);
+  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
   const [filter, setFilter] = createSignal('');
   const [categoryFilter, setCategoryFilter] = createSignal('all');
   
@@ -440,78 +390,58 @@ export default function ListWithSearch() {
 )
 
 
-# MetricsDashboard Template - Multi-stat overview
+# MetricsDashboard Template - Multi-stat overview (ApexCharts)
 METRICS_DASHBOARD_TEMPLATE = ComponentTemplate(
     name="MetricsDashboard",
     category="dashboard",
     description="Multi-metric dashboard with cards and chart",
     tags=["dashboard", "metrics", "kpi", "overview"],
     data_requirements=["metrics", "summary"],
-    code="""import { createSignal, createResource, For, Show, onMount } from 'solid-js';
+    code="""import { createResource, createEffect, onCleanup, For, Show } from 'solid-js';
+import ApexCharts from 'apexcharts';
 
 async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
   const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'large', days: 90 } })
+    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'large', days: 90 }, data_mode: dataMode })
   });
   return response.json();
 }
 
 export default function MetricsDashboard() {
-  const [apiData] = createResource(fetchData);
+  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
   let chartRef;
-  
+  let chartInstance;
+
   const formatCurrency = (val) => {
     if (val > 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
     if (val > 1000) return '$' + (val / 1000).toFixed(1) + 'K';
     return '$' + val.toFixed(0);
   };
-  
-  onMount(function() {
-    // Chart.js is available globally as window.Chart
-    const Chart = window.Chart;
-    if (!Chart) {
-      console.error('Chart.js not available');
-      return;
-    }
-    
-    const renderChart = () => {
-      if (!apiData() || !apiData().metrics) return;
-      
-      const ctx = chartRef.getContext('2d');
-      const metrics = apiData().metrics.slice(-30);
-      
-      new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: metrics.map(function(m) { return m.date; }),
-            datasets: [{
-              label: '{{CHART_METRIC}}',
-              data: metrics.map(function(m) { return m.{{CHART_VALUE}}; }),
-              borderColor: 'rgb(75, 192, 192)',
-              tension: 0.3,
-              fill: true,
-              backgroundColor: 'rgba(75, 192, 192, 0.1)'
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false }
-            },
-            scales: {
-              y: { beginAtZero: true }
-            }
-          }
-        });
-      };
-      
-      if (apiData()) renderChart();
-    });
+
+  createEffect(function() {
+    if (!apiData() || !apiData().metrics || !chartRef) return;
+    const metrics = apiData().metrics.slice(-30);
+    const options = {
+      chart: { type: 'area', toolbar: { show: false } },
+      stroke: { curve: 'smooth', width: 2 },
+      fill: { type: 'gradient', gradient: { opacityFrom: 0.6, opacityTo: 0.1 } },
+      series: [{ name: '{{CHART_METRIC}}', data: metrics.map(function(m) { return m.{{CHART_VALUE}}; }) }],
+      xaxis: { categories: metrics.map(function(m) { return m.date; }) },
+      yaxis: { min: 0 },
+      colors: ['#22c55e']
+    };
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new ApexCharts(chartRef, options);
+    chartInstance.render();
   });
-  
+
+  onCleanup(function() {
+    if (chartInstance) chartInstance.destroy();
+  });
+
   return (
     <div class="p-6">
       <h1 class="text-3xl font-bold mb-6">{{DASHBOARD_TITLE}}</h1>
@@ -524,9 +454,7 @@ export default function MetricsDashboard() {
         <div class="card bg-base-100 shadow-lg mb-6">
           <div class="card-body">
             <h2 class="card-title">Trend Over Time</h2>
-            <div style="height: 300px;">
-              <canvas ref={chartRef}></canvas>
-            </div>
+            <div ref={chartRef} style="height: 300px;"></div>
           </div>
         </div>
         
@@ -551,6 +479,193 @@ export default function MetricsDashboard() {
 )
 
 
+# DonutChart Template - Category breakdown
+DONUT_CHART_TEMPLATE = ComponentTemplate(
+    name="DonutChart",
+    category="chart",
+    description="Donut chart for category breakdown",
+    tags=["chart", "donut", "pie", "breakdown", "distribution"],
+    data_requirements=["labels_field", "value_field"],
+    code="""import { createResource, createEffect, onCleanup } from 'solid-js';
+import ApexCharts from 'apexcharts';
+
+async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
+  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' }, data_mode: dataMode })
+  });
+  return response.json();
+}
+
+export default function DonutChart() {
+  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
+  let chartRef;
+  let chartInstance;
+
+  createEffect(function() {
+    if (!apiData() || !apiData().{{DATA_ARRAY}} || !chartRef) return;
+    const items = apiData().{{DATA_ARRAY}}.slice(0, 8);
+    const labels = items.map(function(item) { return item.{{CATEGORY_FIELD}}; });
+    const values = items.map(function(item) { return item.{{VALUE_FIELD}}; });
+    const options = {
+      chart: { type: 'donut' },
+      labels: labels,
+      series: values,
+      legend: { position: 'right' },
+      colors: ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
+    };
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new ApexCharts(chartRef, options);
+    chartInstance.render();
+  });
+
+  onCleanup(function() {
+    if (chartInstance) chartInstance.destroy();
+  });
+
+  return (
+    <div class="p-6">
+      <h2 class="text-2xl font-bold mb-4">{{CHART_TITLE}}</h2>
+      <div ref={chartRef} style="height: 400px;"></div>
+    </div>
+  );
+}"""
+)
+
+
+# HeatmapChart Template - Time-series intensity
+HEATMAP_CHART_TEMPLATE = ComponentTemplate(
+    name="HeatmapChart",
+    category="chart",
+    description="Heatmap for time-series intensity visualization",
+    tags=["chart", "heatmap", "intensity", "activity"],
+    data_requirements=["date_field", "value_field"],
+    code="""import { createResource, createEffect, onCleanup } from 'solid-js';
+import ApexCharts from 'apexcharts';
+
+async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
+  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium', days: 90 }, data_mode: dataMode })
+  });
+  return response.json();
+}
+
+export default function HeatmapChart() {
+  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
+  let chartRef;
+  let chartInstance;
+
+  createEffect(function() {
+    if (!apiData() || !apiData().metrics || !chartRef) return;
+    const metrics = apiData().metrics;
+    const data = metrics.map(function(m) {
+      return {
+        x: m.{{DATE_FIELD}},
+        y: m.{{VALUE_FIELD}}
+      };
+    });
+    const options = {
+      chart: { type: 'heatmap', toolbar: { show: false } },
+      dataLabels: { enabled: false },
+      plotOptions: {
+        heatmap: {
+          shadeIntensity: 0.5,
+          colorScale: {
+            ranges: [
+              { from: 0, to: 100, color: '#dcfce7' },
+              { from: 100, to: 500, color: '#86efac' },
+              { from: 500, to: 10000, color: '#22c55e' }
+            ]
+          }
+        }
+      },
+      series: [{ name: '{{METRIC_LABEL}}', data: data }]
+    };
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new ApexCharts(chartRef, options);
+    chartInstance.render();
+  });
+
+  onCleanup(function() {
+    if (chartInstance) chartInstance.destroy();
+  });
+
+  return (
+    <div class="p-6">
+      <h2 class="text-2xl font-bold mb-4">{{CHART_TITLE}}</h2>
+      <div ref={chartRef} style="height: 400px;"></div>
+    </div>
+  );
+}"""
+)
+
+
+# MixedChart Template - Line + Bar combined
+MIXED_CHART_TEMPLATE = ComponentTemplate(
+    name="MixedChart",
+    category="chart",
+    description="Combined line and bar chart",
+    tags=["chart", "mixed", "line", "bar", "comparison"],
+    data_requirements=["date_field", "line_field", "bar_field"],
+    code="""import { createResource, createEffect, onCleanup } from 'solid-js';
+import ApexCharts from 'apexcharts';
+
+async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
+  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium', days: 90 }, data_mode: dataMode })
+  });
+  return response.json();
+}
+
+export default function MixedChart() {
+  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
+  let chartRef;
+  let chartInstance;
+
+  createEffect(function() {
+    if (!apiData() || !apiData().metrics || !chartRef) return;
+    const metrics = apiData().metrics;
+    const categories = metrics.map(function(m) { return m.{{DATE_FIELD}}; });
+    const options = {
+      chart: { type: 'line', toolbar: { show: false } },
+      stroke: { width: [2, 0] },
+      plotOptions: { bar: { columnWidth: '50%' } },
+      series: [
+        { name: '{{LINE_LABEL}}', type: 'line', data: metrics.map(function(m) { return m.{{LINE_FIELD}}; }) },
+        { name: '{{BAR_LABEL}}', type: 'column', data: metrics.map(function(m) { return m.{{BAR_FIELD}}; }) }
+      ],
+      xaxis: { categories: categories },
+      yaxis: [{ min: 0 }, { opposite: true, min: 0 }],
+      tooltip: { shared: true },
+      colors: ['#22c55e', '#3b82f6']
+    };
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new ApexCharts(chartRef, options);
+    chartInstance.render();
+  });
+
+  onCleanup(function() {
+    if (chartInstance) chartInstance.destroy();
+  });
+
+  return (
+    <div class="p-6">
+      <h2 class="text-2xl font-bold mb-4">{{CHART_TITLE}}</h2>
+      <div ref={chartRef} style="height: 400px;"></div>
+    </div>
+  );
+}"""
+)
+
+
 # Collection of all templates
 COMPONENT_TEMPLATES: Dict[str, ComponentTemplate] = {
     "StatCard": STAT_CARD_TEMPLATE,
@@ -559,6 +674,9 @@ COMPONENT_TEMPLATES: Dict[str, ComponentTemplate] = {
     "BarChart": BAR_CHART_TEMPLATE,
     "ListWithSearch": LIST_WITH_SEARCH_TEMPLATE,
     "MetricsDashboard": METRICS_DASHBOARD_TEMPLATE,
+    "DonutChart": DONUT_CHART_TEMPLATE,
+    "HeatmapChart": HEATMAP_CHART_TEMPLATE,
+    "MixedChart": MIXED_CHART_TEMPLATE,
 }
 
 

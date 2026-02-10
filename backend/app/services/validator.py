@@ -19,7 +19,7 @@ class CodeValidator:
 
     ALLOWED_IMPORTS = [
         "solid-js", "solid-js/web", "solid-js/store",
-        "apexcharts", "chart.js"
+        "apexcharts"
     ]
 
     FORBIDDEN_PATTERNS = [

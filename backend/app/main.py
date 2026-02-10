@@ -5,11 +5,12 @@ from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 import os
 
+from app import __version__
 from app.config import settings
-from app.database import close_redis
+from app.database import close_connections
 from app.middleware.auth import AuthMiddleware
 from app.middleware.logging import StructuredLoggingMiddleware, setup_logging
-from app.routers import chat, components, health, mock, catalog, a2a
+from app.routers import chat, components, health, mock, catalog, a2a, cag_admin
 
 
 setup_logging(settings.log_level)
@@ -18,13 +19,13 @@ setup_logging(settings.log_level)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
-    await close_redis()
+    await close_connections()
 
 
 app = FastAPI(
     title="Spark API",
     description="AI-Powered Micro App Generation Service",
-    version="1.0.0",
+    version=__version__,
     lifespan=lifespan
 )
 
@@ -45,6 +46,7 @@ app.include_router(components.router, prefix="/api/components", tags=["component
 app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
 app.include_router(mock.router, prefix="/api", tags=["mock"])
 app.include_router(a2a.router, prefix="/api/a2a", tags=["a2a"])
+app.include_router(cag_admin.router, prefix="/api", tags=["cag"])
 
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 if os.path.exists(static_dir):

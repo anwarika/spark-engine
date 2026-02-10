@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from app.models import ChatResponse
 from app.config import settings
 from app.services.prompt_cache import PromptCache
@@ -24,10 +24,13 @@ You generate Spark native microapps: lightweight Solid.js micro-components for d
 AVAILABLE PRE-BUILT TEMPLATES (use when appropriate for faster, optimized generation):
 1. StatCard - KPI cards with trend indicators (for: metrics, kpis, summary stats)
 2. DataTable - Filterable/sortable tables (for: listing data, tables, browsing records)
-3. LineChart - Time series charts (for: trends over time, line graphs)
-4. BarChart - Comparison charts (for: comparing values, bar graphs)
+3. LineChart - Time series line charts (for: trends over time, line graphs)
+4. BarChart - Comparison bar charts (for: comparing values, bar graphs)
 5. ListWithSearch - Searchable lists (for: browsing items, directories)
-6. MetricsDashboard - Multi-metric overview (for: dashboards, overviews, multiple KPIs)
+6. MetricsDashboard - Multi-metric dashboard with area chart (for: dashboards, overviews, multiple KPIs)
+7. DonutChart - Category breakdown donut/pie (for: distributions, breakdowns)
+8. HeatmapChart - Time-series intensity heatmap (for: activity, intensity over time)
+9. MixedChart - Combined line + bar chart (for: comparing two metrics)
 
 WHEN TO USE TEMPLATES:
 - User asks to "show", "display", "list", "chart" data → Use matching template
@@ -43,8 +46,8 @@ Guidelines for component generation:
 5. Use createResource() to fetch data from API endpoints when possible
 6. Keep state minimal and reactive using Solid.js primitives
 
-Available libraries (already loaded globally in iframe):
-- Chart.js (window.Chart) - for charts, use directly without import
+Available libraries (import from CDN via importmap):
+- ApexCharts: import ApexCharts from 'apexcharts'; use new ApexCharts(element, options); chart.render(); chart.destroy() on cleanup
 - DaisyUI + Tailwind - for styling
 - Helper utilities (formatters, aggregators) can be defined inline
 
@@ -135,16 +138,17 @@ Example component with data fetching (REQUIRED PATTERN):
 import { createSignal, createResource, For, Show } from 'solid-js';
 
 async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
   const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: 'saas', scale: 'large', seed: 42, days: 365 } })
+    body: JSON.stringify({ mock: { profile: 'saas', scale: 'large', seed: 42, days: 365 }, data_mode: dataMode })
   });
   return response.json();
 }
 
 export default function ProductList() {
-  const [apiData] = createResource(fetchData);
+  const [apiData] = createResource(function() { return window.__DATA_MODE || 'sample'; }, fetchData);
   const [filter, setFilter] = createSignal('');
 
   const filteredProducts = () => {
@@ -190,58 +194,57 @@ export default function ProductList() {
   );
 }
 
-Example with Chart.js (Chart is available globally as window.Chart):
+Example with ApexCharts (import ApexCharts from 'apexcharts'):
 
-import { createResource, onMount } from 'solid-js';
+import { createResource, createEffect, onCleanup } from 'solid-js';
+import ApexCharts from 'apexcharts';
 
 async function fetchData() {
+  const dataMode = window.__DATA_MODE || 'sample';
   const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: 'ecommerce', scale: 'large', days: 90 } })
+    body: JSON.stringify({ mock: { profile: 'ecommerce', scale: 'large', days: 90 }, data_mode: dataMode })
   });
   return response.json();
 }
 
 export default function RevenueChart() {
-  const [apiData] = createResource(fetchData);
-  let chartCanvas;
-  
-  onMount(() => {
-    const renderChart = () => {
-      if (!apiData() || !apiData().metrics) return;
-      
-      const ctx = chartCanvas.getContext('2d');
-      new window.Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: apiData().metrics.map(m => m.date),
-          datasets: [{
-            label: 'Revenue',
-            data: apiData().metrics.map(m => m.revenue),
-            borderColor: 'rgb(75, 192, 192)',
-            tension: 0.1
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false
-        }
-      });
+  const [apiData] = createResource(function() { return window.__DATA_MODE || 'sample'; }, fetchData);
+  let chartRef;
+  let chartInstance;
+
+  createEffect(function() {
+    if (!apiData() || !apiData().metrics || !chartRef) return;
+    const metrics = apiData().metrics;
+    const options = {
+      chart: { type: 'line', toolbar: { show: false } },
+      stroke: { curve: 'smooth', width: 2 },
+      series: [{ name: 'Revenue', data: metrics.map(function(m) { return m.revenue; }) }],
+      xaxis: { categories: metrics.map(function(m) { return m.date; }) },
+      yaxis: { min: 0 }
     };
-    
-    if (apiData()) renderChart();
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new ApexCharts(chartRef, options);
+    chartInstance.render();
   });
-  
+
+  onCleanup(function() {
+    if (chartInstance) chartInstance.destroy();
+  });
+
   return (
     <div class="p-6">
       <h2 class="text-2xl font-bold mb-4">Revenue Trend</h2>
-      <div style="height: 400px;">
-        <canvas ref={chartCanvas}></canvas>
-      </div>
+      <div ref={chartRef} style="height: 400px;"></div>
     </div>
   );
 }
+
+DATA BRIDGE (sample to real swap):
+- window.__DATA_MODE is 'sample' by default. Parent can postMessage { type: 'data_swap', mode: 'real' } to switch.
+- Include data_mode in fetch body. Use createResource(source, fetchData) with source = function() { return window.__DATA_MODE; } so refetch triggers on mode change.
+- Real data: POST to /api/components/{id}/data/swap with { mode: 'real', data: {...} } before switching.
 
 Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code in markdown fences."""
         self.style_doc_path = Path(__file__).resolve().parents[1] / "static" / "daisyui.txt"

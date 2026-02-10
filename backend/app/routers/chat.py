@@ -4,6 +4,7 @@ from app.models import ChatMessage, ChatResponse
 from app.services.llm import LLMService
 from app.services.validator import CodeValidator
 from app.services.compiler import ComponentCompiler
+from app.services.cag import CAGService, increment_reuse_count
 from app.database import get_storage
 from app.middleware.auth import get_tenant_id, get_user_id
 import logging
@@ -19,6 +20,7 @@ router = APIRouter()
 llm_service = LLMService()
 validator = CodeValidator()
 compiler = ComponentCompiler()
+cag_service = CAGService()
 
 def _sse(event: str, data: dict) -> str:
     # SSE format: event + data + blank line
@@ -74,6 +76,70 @@ async def chat_message(message: ChatMessage, request: Request):
         await storage.save_chat_message(session_db_id, "user", message.message)
     except Exception as e:
         logger.warning(f"Failed to save user message to database: {e}")
+
+    # CAG: Check for existing component before LLM generation
+    cag_start = time.time()
+    content_fingerprint = cag_service.create_fingerprint(
+        prompt=message.message,
+        template_name=None,  # Will be determined after LLM response
+        data_profile="ecommerce"  # Default for now
+    )
+    
+    existing_component = await storage.find_component_by_content_hash(
+        tenant_id, 
+        content_fingerprint.content_hash
+    )
+    timing_breakdown["cag_lookup_ms"] = round((time.time() - cag_start) * 1000, 2)
+
+    if existing_component and cag_service.should_reuse(existing_component):
+        # Component already exists! Return it without LLM generation
+        logger.info(f"CAG HIT: Reusing component {existing_component['id']} for prompt hash {content_fingerprint.content_hash[:12]}")
+        
+        # Update reuse metadata
+        gen_metadata = existing_component.get('generation_metadata', {})
+        if isinstance(gen_metadata, str):
+            try:
+                gen_metadata = json.loads(gen_metadata)
+            except:
+                gen_metadata = {}
+        updated_metadata = increment_reuse_count(gen_metadata)
+        
+        # Save assistant message referencing the existing component
+        try:
+            await storage.save_chat_message(
+                session_db_id, "assistant", existing_component['solidjs_code'],
+                component_id=existing_component['id'],
+                llm_model="cag_reuse",
+                reasoning=f"Reused existing component (content_hash: {content_fingerprint.content_hash[:12]})"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save CAG reuse message: {e}")
+        
+        timing_breakdown["total_ms"] = round((time.time() - request_start_time) * 1000, 2)
+        
+        # Log CAG metrics
+        cag_metrics = {
+            "event": "cag_hit",
+            "timestamp": datetime.utcnow().isoformat(),
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "component_id": existing_component['id'],
+            "content_hash": content_fingerprint.content_hash,
+            "normalized_prompt": content_fingerprint.normalized_prompt,
+            "reuse_count": updated_metadata.get('reuse_count', 1),
+            "timing": timing_breakdown
+        }
+        logger.info(json.dumps(cag_metrics))
+        
+        return ChatResponse(
+            type="component",
+            content=existing_component['solidjs_code'],
+            component_id=existing_component['id'],
+            reasoning=f"Reused existing component (saves ~{timing_breakdown.get('llm_generation_ms', 1500)}ms generation time)",
+        )
+    
+    # CAG MISS: Generate new component
+    logger.info(f"CAG MISS: No existing component for hash {content_fingerprint.content_hash[:12]}, generating new")
 
     # Time LLM generation
     llm_start = time.time()
@@ -145,6 +211,15 @@ async def chat_message(message: ChatMessage, request: Request):
             "request_start_timestamp_ms": request_start_timestamp_ms
         })
         
+        # CAG: Store content hash and metadata
+        generation_metadata = {
+            "prompt_original": message.message,
+            "template_name": None,  # Could extract from LLM response if available
+            "data_profile": "ecommerce",
+            "reuse_count": 0,
+            "original_component_id": None  # This is the original
+        }
+        
         try:
             component_id = await storage.create_component({
                 "tenant_id": tenant_id,
@@ -153,6 +228,9 @@ async def chat_message(message: ChatMessage, request: Request):
                 "description": description_with_metadata,
                 "solidjs_code": llm_response.content,
                 "code_hash": code_hash,
+                "content_hash": content_fingerprint.content_hash,
+                "prompt_normalized": content_fingerprint.normalized_prompt,
+                "generation_metadata": json.dumps(generation_metadata),
                 "validated": True,
                 "compiled": True,
                 "compiled_bundle": compilation_result.bundle,
@@ -187,12 +265,12 @@ async def chat_message(message: ChatMessage, request: Request):
     timing_breakdown["total_ms"] = round((time.time() - request_start_time) * 1000, 2)
 
     # Determine cache strategy used
-    cache_strategy = "llm_generated"
+    cache_strategy = "cag_miss_llm_generated"
     if llm_response.type == "component" and compilation_result:
         if compilation_result.compile_time_ms == 0:
-            cache_strategy = "bundle_cached"
+            cache_strategy = "cag_miss_bundle_cached"
         else:
-            cache_strategy = "compiled_fresh"
+            cache_strategy = "cag_miss_compiled_fresh"
     
     # Calculate optimization score (smaller is better)
     optimization_score = None
@@ -217,9 +295,16 @@ async def chat_message(message: ChatMessage, request: Request):
             "bundle_cache_hit": compilation_result.compile_time_ms == 0,
             "optimization_score": optimization_score
         } if llm_response.type == "component" and compilation_result else None,
+        "cag_metrics": {
+            "content_hash": content_fingerprint.content_hash,
+            "normalized_prompt": content_fingerprint.normalized_prompt,
+            "cag_hit": False,  # This was a miss
+            "cag_lookup_ms": timing_breakdown.get("cag_lookup_ms", 0)
+        },
         "caching": {
-            "prompt_cache_available": True,  # Always available now
-            "data_cache_available": True,     # Always available now
+            "cag_available": True,
+            "prompt_cache_available": True,
+            "data_cache_available": True,
             "bundle_cached": compilation_result.compile_time_ms == 0 if compilation_result else False
         }
     }

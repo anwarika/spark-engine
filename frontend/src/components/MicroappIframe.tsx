@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 
 interface MicroappIframeProps {
     componentId: string;
@@ -11,8 +11,10 @@ export const MicroappIframe: React.FC<MicroappIframeProps> = ({
 }) => {
     const iframeUrl = `/api/components/${componentId}/iframe`;
     const sandbox = 'allow-scripts allow-same-origin';
+    const iframeRef = useRef<HTMLIFrameElement>(null);
 
     const [iframeHeight, setIframeHeight] = useState(600);
+    const [dataMode, setDataMode] = useState<'sample' | 'real'>('sample');
 
     useEffect(() => {
         const calculateReserved = () => {
@@ -36,10 +38,40 @@ export const MicroappIframe: React.FC<MicroappIframeProps> = ({
         return () => window.removeEventListener('resize', updateHeight);
     }, []);
 
+    const handleDataModeChange = (mode: 'sample' | 'real') => {
+        setDataMode(mode);
+        iframeRef.current?.contentWindow?.postMessage(
+            { type: 'data_swap', mode },
+            '*'  // Same-origin in production; allows dev with different ports
+        );
+    };
+
     return (
         <div className="card bg-base-200 shadow-xl">
             <div className="card-body p-2">
+                <div className="flex justify-between items-center mb-2 gap-2">
+                    <span className="badge badge-sm badge-outline">
+                        Data: {dataMode === 'sample' ? 'Sample' : 'Real'}
+                    </span>
+                    <div className="join">
+                        <button
+                            className={`btn btn-xs join-item ${dataMode === 'sample' ? 'btn-active' : ''}`}
+                            onClick={() => handleDataModeChange('sample')}
+                            title="Use sample/mock data"
+                        >
+                            Sample
+                        </button>
+                        <button
+                            className={`btn btn-xs join-item ${dataMode === 'real' ? 'btn-active' : ''}`}
+                            onClick={() => handleDataModeChange('real')}
+                            title="Use real data (requires POST to /data/swap first)"
+                        >
+                            Real
+                        </button>
+                    </div>
+                </div>
                 <iframe
+                    ref={iframeRef}
                     src={iframeUrl}
                     style={{ height: `${iframeHeight}px` }}
                     className="w-full rounded-lg border-0 min-h-[360px]"

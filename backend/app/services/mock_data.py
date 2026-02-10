@@ -53,6 +53,11 @@ def _wchoice(rng: random.Random, values: Sequence[Any], weights: Sequence[float]
     return rng.choices(list(values), weights=list(weights), k=1)[0]
 
 
+def _round_float(value: float, decimals: int = 2) -> float:
+    """Round float to specified decimal places, avoiding floating point artifacts"""
+    return round(float(value), decimals)
+
+
 def _sizes(profile: str, scale: str) -> Dict[str, int]:
     """
     Profile-specific scaling: keep worst-case row counts bounded for local dev.
@@ -594,7 +599,7 @@ def _generate_saas(spec: MockSpec) -> Dict[str, Any]:
                 "account_id": acc_id,
                 "user_id": user_id,
                 "event_type": _wchoice(rng, event_types, [0.14, 0.34, 0.10, 0.26, 0.06, 0.10]),
-                "value": round(max(0.0, rng.gauss(1.0, 0.6)), 3),
+                "value": _round_float(max(0.0, rng.gauss(1.0, 0.6)), 2),
             }
         )
 
@@ -614,8 +619,8 @@ def _generate_saas(spec: MockSpec) -> Dict[str, Any]:
         arr = round(mrr * 12.0, 2)
         churned = int(max(0, rng.gauss(18 if spec.scale == "xl" else 6, 4)))
         active_accounts = int(min(sizes["accounts"], max(50, rng.gauss(sizes["accounts"] * 0.42, sizes["accounts"] * 0.06))))
-        net_new_mrr = round(mrr - (prev_mrr or 0.0), 2) if prev_mrr is not None else None
-        churn_rate = round(min(0.12, max(0.002, churned / max(1, active_accounts))), 4)
+        net_new_mrr = _round_float(mrr - (prev_mrr or 0.0), 2) if prev_mrr is not None else None
+        churn_rate = _round_float(min(0.12, max(0.002, churned / max(1, active_accounts))), 4)
         kpi_monthly.append(
             {
                 "month": mk,
@@ -625,8 +630,8 @@ def _generate_saas(spec: MockSpec) -> Dict[str, Any]:
                 "active_accounts": active_accounts,
                 "churned_accounts": churned,
                 "churn_rate": churn_rate,
-                "gross_retention": round(1.0 - churn_rate * rng.uniform(0.8, 1.2), 4),
-                "net_retention": round(1.0 + rng.uniform(-0.01, 0.08), 4),
+                "gross_retention": _round_float(1.0 - churn_rate * rng.uniform(0.8, 1.2), 4),
+                "net_retention": _round_float(1.0 + rng.uniform(-0.01, 0.08), 4),
             }
         )
         prev_mrr = mrr
@@ -642,12 +647,12 @@ def _generate_saas(spec: MockSpec) -> Dict[str, Any]:
         trials = int(max(0, rng.gauss(20, 8)))
         activations = int(max(0, rng.gauss(trials * 0.55, 3)))
         churned = int(max(0, rng.gauss(2.2, 1.2)))
-        mrr_daily = max(0.0, mrr_daily + rng.gauss(120.0, 220.0) - churned * rng.uniform(40, 220))
+        mrr_daily = max(0.0, mrr_daily + rng.gauss(120.0, 220.0) - churned * _round_float(rng.uniform(40, 220), 2))
         metrics.append(
             {
                 "date": _iso(d),
-                "mrr": round(mrr_daily, 2),
-                "arr": round(mrr_daily * 12.0, 2),
+                "mrr": _round_float(mrr_daily, 2),
+                "arr": _round_float(mrr_daily * 12.0, 2),
                 "signups": signups,
                 "trials": trials,
                 "activations": activations,
@@ -657,8 +662,8 @@ def _generate_saas(spec: MockSpec) -> Dict[str, Any]:
         )
 
     summary = {
-        "mrr": round(mrr_daily, 2),
-        "arr": round(mrr_daily * 12.0, 2),
+        "mrr": _round_float(mrr_daily, 2),
+        "arr": _round_float(mrr_daily * 12.0, 2),
         "active_accounts": int(max(10, rng.gauss(sizes["accounts"] * 0.42, sizes["accounts"] * 0.05))),
         "active_users": int(max(10, rng.gauss(sizes["users"] * 0.50, sizes["users"] * 0.06))),
         "gross_retention": kpi_monthly[-1]["gross_retention"] if kpi_monthly else None,
@@ -781,7 +786,7 @@ def _generate_marketing(spec: MockSpec) -> Dict[str, Any]:
                     "campaign_id": c["id"],
                     "channel": c["channel"],
                     "platform": c["platform"],
-                    "spend": round(spend, 2),
+                    "spend": spend,
                     "impressions": impressions,
                     "clicks": clicks,
                     "leads": leads,
@@ -800,7 +805,7 @@ def _generate_marketing(spec: MockSpec) -> Dict[str, Any]:
         status = _wchoice(rng, lead_statuses, [0.30, 0.26, 0.20, 0.10, 0.14])
         source = _wchoice(rng, lead_sources, [0.52, 0.18, 0.10, 0.14, 0.06])
         won = status == "won"
-        revenue = round(max(0.0, rng.gauss(18_000 if won else 7_000, 8_000)), 2) if won else 0.0
+        revenue = _round_float(max(0.0, rng.gauss(18_000 if won else 7_000, 8_000)), 2) if won else 0.0
         leads.append(
             {
                 "id": lid,
@@ -870,8 +875,8 @@ def _generate_marketing(spec: MockSpec) -> Dict[str, Any]:
         clicks = clicks_by_day.get(ds, 0)
         leads_n = leads_by_day.get(ds, 0)
         opps_n = opps_by_day.get(ds, 0)
-        cpc = round(spend / max(1, clicks), 4)
-        cpl = round(spend / max(1, leads_n), 4)
+        cpc = _round_float(spend / max(1, clicks), 2)
+        cpl = _round_float(spend / max(1, leads_n), 2)
         metrics.append(
             {
                 "date": ds,
@@ -886,10 +891,10 @@ def _generate_marketing(spec: MockSpec) -> Dict[str, Any]:
         )
 
     summary = {
-        "total_spend": round(sum(spend_by_day.values()), 2),
+        "total_spend": _round_float(sum(spend_by_day.values()), 2),
         "total_leads": int(sum(leads_by_day.values())),
         "total_opportunities": int(sum(opps_by_day.values())),
-        "attributed_revenue_last_touch": round(sum(attributed_last_touch.values()), 2),
+        "attributed_revenue_last_touch": _round_float(sum(attributed_last_touch.values()), 2),
         "top_channel_last_touch": max(attributed_last_touch.items(), key=lambda kv: kv[1])[0] if attributed_last_touch else None,
     }
 
@@ -977,7 +982,7 @@ def _generate_finance(spec: MockSpec) -> Dict[str, Any]:
         gl = gl_accounts[rng.randrange(0, len(gl_accounts))]
         cat = gl["category"]
         magnitude = abs(rng.gauss(320.0 if cat == "opex" else (1200.0 if cat == "revenue" else 520.0), 420.0))
-        amount = round(magnitude, 2)
+        amount = _round_float(magnitude, 2)
         # sign convention: revenue positive, expenses negative
         if cat in ("cogs", "opex", "other_expense"):
             amount = -amount
@@ -1020,7 +1025,7 @@ def _generate_finance(spec: MockSpec) -> Dict[str, Any]:
                 "cogs": round(cogs, 2),
                 "opex": round(opex, 2),
                 "gross_profit": round(gross_profit, 2),
-                "gross_margin": round((gross_profit / rev) if rev else 0.0, 4),
+                "gross_margin": _round_float((gross_profit / rev) if rev else 0.0, 4),
                 "ebitda": round(ebitda, 2),
             }
         )
@@ -1147,7 +1152,7 @@ def _generate_sales(spec: MockSpec) -> Dict[str, Any]:
         account_id = rng.randint(1, sizes["accounts"])
         rep = reps[rng.randrange(0, len(reps))]
         created = start + timedelta(days=rng.randint(0, days - 1))
-        amount = round(max(1_000.0, abs(rng.gauss(18_000, 28_000))), 2)
+        amount = _round_float(max(1_000.0, abs(rng.gauss(18_000, 28_000))), 2)
         stage = _wchoice(rng, stages, [0.18, 0.18, 0.18, 0.16, 0.10, 0.10, 0.10])
         probability = {
             "Prospecting": 0.10,
@@ -1227,7 +1232,7 @@ def _generate_sales(spec: MockSpec) -> Dict[str, Any]:
                 {
                     "rep_id": rep["id"],
                     "month": mk,
-                    "quota": round(max(5_000.0, rng.gauss(base, base * 0.18)), 2),
+                    "quota": _round_float(max(5_000.0, rng.gauss(base, base * 0.18)), 2),
                 }
             )
 
@@ -1254,8 +1259,8 @@ def _generate_sales(spec: MockSpec) -> Dict[str, Any]:
     summary = {
         "open_opps": metrics[-1]["open_opps"] if metrics else 0,
         "pipeline_amount": metrics[-1]["pipeline_amount"] if metrics else 0.0,
-        "bookings_total": round(sum(float(b["amount"]) for b in bookings), 2),
-        "win_rate": round(len([o for o in opps if o["stage"] == "Closed Won"]) / max(1, len([o for o in opps if o["stage"] in ("Closed Won", "Closed Lost")])), 4),
+        "bookings_total": _round_float(sum(float(b["amount"]) for b in bookings), 2),
+        "win_rate": _round_float(len([o for o in opps if o["stage"] == "Closed Won"]) / max(1, len([o for o in opps if o["stage"] in ("Closed Won", "Closed Lost")])), 4),
     }
 
     counts = {

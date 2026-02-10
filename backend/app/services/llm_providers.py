@@ -40,7 +40,7 @@ class OpenAIProvider(BaseLLMProvider):
                 model=self.model,
                 messages=full_messages,
                 response_format={"type": "json_object"},
-                max_tokens=4096,
+                max_completion_tokens=4096,
                 **kwargs
             )
             
@@ -73,7 +73,7 @@ class AnthropicProvider(BaseLLMProvider):
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=4096,
+                max_completion_tokens=4096,
                 system=system_prompt,
                 messages=messages,
                 **kwargs
@@ -121,7 +121,7 @@ class OpenRouterProvider(BaseLLMProvider):
                 model=self.model,
                 messages=full_messages,
                 response_format={"type": "json_object"}, # OpenRouter supports this for many models
-                max_tokens=4096,
+                max_completion_tokens=4096,
                 **kwargs
             )
             content = response.choices[0].message.content
@@ -133,4 +133,5 @@ class OpenRouterProvider(BaseLLMProvider):
             )
         except Exception as e:
             raise Exception(f"OpenRouter API error: {str(e)}")
+
 

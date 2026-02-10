@@ -161,6 +161,12 @@ class TemplateEngine:
             code = self._fill_list(code, user_prompt, profile)
         elif template.name == "MetricsDashboard":
             code = self._fill_dashboard(code, user_prompt, profile)
+        elif template.name == "DonutChart":
+            code = self._fill_donut_chart(code, user_prompt, profile)
+        elif template.name == "HeatmapChart":
+            code = self._fill_heatmap_chart(code, user_prompt, profile)
+        elif template.name == "MixedChart":
+            code = self._fill_mixed_chart(code, user_prompt, profile)
         
         return code
 
@@ -237,6 +243,54 @@ class TemplateEngine:
                 .replace("{{CATEGORY_FIELD}}", "date") \
                 .replace("{{VALUE_FIELD}}", "revenue") \
                 .replace("{{VALUE_LABEL}}", "Revenue")
+
+    def _fill_donut_chart(self, code: str, prompt: str, profile: str) -> str:
+        """Fill DonutChart template."""
+        if profile == "ecommerce":
+            return code.replace("{{CHART_TITLE}}", "Sales by Category") \
+                .replace("{{DATA_ARRAY}}", "products") \
+                .replace("{{CATEGORY_FIELD}}", "category") \
+                .replace("{{VALUE_FIELD}}", "price")
+        elif profile == "saas":
+            return code.replace("{{CHART_TITLE}}", "MRR by Segment") \
+                .replace("{{DATA_ARRAY}}", "accounts") \
+                .replace("{{CATEGORY_FIELD}}", "segment") \
+                .replace("{{VALUE_FIELD}}", "mrr")
+        else:
+            return code.replace("{{CHART_TITLE}}", "Breakdown") \
+                .replace("{{DATA_ARRAY}}", "products") \
+                .replace("{{CATEGORY_FIELD}}", "category") \
+                .replace("{{VALUE_FIELD}}", "price")
+
+    def _fill_heatmap_chart(self, code: str, prompt: str, profile: str) -> str:
+        """Fill HeatmapChart template."""
+        if profile == "saas":
+            return code.replace("{{CHART_TITLE}}", "MRR Intensity") \
+                .replace("{{DATE_FIELD}}", "date") \
+                .replace("{{VALUE_FIELD}}", "mrr") \
+                .replace("{{METRIC_LABEL}}", "MRR")
+        else:
+            return code.replace("{{CHART_TITLE}}", "Revenue Intensity") \
+                .replace("{{DATE_FIELD}}", "date") \
+                .replace("{{VALUE_FIELD}}", "revenue") \
+                .replace("{{METRIC_LABEL}}", "Revenue")
+
+    def _fill_mixed_chart(self, code: str, prompt: str, profile: str) -> str:
+        """Fill MixedChart template."""
+        if profile == "saas":
+            return code.replace("{{CHART_TITLE}}", "MRR vs Churn") \
+                .replace("{{DATE_FIELD}}", "date") \
+                .replace("{{LINE_FIELD}}", "mrr") \
+                .replace("{{BAR_FIELD}}", "churned_accounts") \
+                .replace("{{LINE_LABEL}}", "MRR") \
+                .replace("{{BAR_LABEL}}", "Churned")
+        else:
+            return code.replace("{{CHART_TITLE}}", "Revenue vs Orders") \
+                .replace("{{DATE_FIELD}}", "date") \
+                .replace("{{LINE_FIELD}}", "revenue") \
+                .replace("{{BAR_FIELD}}", "conversions") \
+                .replace("{{LINE_LABEL}}", "Revenue") \
+                .replace("{{BAR_LABEL}}", "Conversions")
 
     def _fill_list(self, code: str, prompt: str, profile: str) -> str:
         """Fill ListWithSearch template."""

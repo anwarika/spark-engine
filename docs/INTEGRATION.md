@@ -125,3 +125,4 @@ For simple chatbots that don't support tool calling, you can simply output a lin
 **Example:**
 > "I can generate that chart for you. [Click here to view Sales Chart](https://spark.domain/api/a2a/render?prompt=bar+chart+of+sales)"
 
+

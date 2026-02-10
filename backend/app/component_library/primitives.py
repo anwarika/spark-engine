@@ -82,95 +82,139 @@ const formatPercent = (value) => {
   return (value * 100).toFixed(1) + '%';
 };"""
 
-# Chart.js line chart config
-CHART_LINE_CONFIG = """// Chart.js line chart configuration
-const lineChartConfig = (labels, data, label) => ({
-  type: 'line',
-  data: {
-    labels: labels,
-    datasets: [{
-      label: label,
-      data: data,
-      borderColor: 'rgb(75, 192, 192)',
-      backgroundColor: 'rgba(75, 192, 192, 0.1)',
-      tension: 0.3,
-      fill: true
-    }]
+# ApexCharts line chart config
+APEX_LINE_CONFIG = """// ApexCharts line chart configuration
+const apexLineConfig = (categories, data, name) => ({
+  chart: { type: 'line', toolbar: { show: false }, zoom: { enabled: false } },
+  stroke: { curve: 'smooth', width: 2 },
+  series: [{ name: name || 'Value', data: data }],
+  xaxis: { categories: categories },
+  yaxis: { min: 0 },
+  tooltip: { enabled: true },
+  colors: ['#22c55e']
+});"""
+
+# ApexCharts bar chart config
+APEX_BAR_CONFIG = """// ApexCharts bar chart configuration
+const apexBarConfig = (categories, data, name) => ({
+  chart: { type: 'bar', toolbar: { show: false } },
+  plotOptions: {
+    bar: {
+      borderRadius: 4,
+      columnWidth: '60%',
+      dataLabels: { position: 'top' }
+    }
   },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        display: true,
-        position: 'top'
-      }
-    },
-    scales: {
-      y: {
-        beginAtZero: true
-      }
+  series: [{ name: name || 'Value', data: data }],
+  xaxis: { categories: categories },
+  yaxis: { min: 0 },
+  tooltip: { enabled: true },
+  colors: ['#3b82f6']
+});"""
+
+# ApexCharts area chart config
+APEX_AREA_CONFIG = """// ApexCharts area chart configuration
+const apexAreaConfig = (categories, data, name) => ({
+  chart: { type: 'area', toolbar: { show: false } },
+  stroke: { curve: 'smooth', width: 2 },
+  fill: { type: 'gradient', gradient: { opacityFrom: 0.6, opacityTo: 0.1 } },
+  series: [{ name: name || 'Value', data: data }],
+  xaxis: { categories: categories },
+  yaxis: { min: 0 },
+  tooltip: { enabled: true },
+  colors: ['#8b5cf6']
+});"""
+
+# ApexCharts donut chart config
+APEX_DONUT_CONFIG = """// ApexCharts donut chart configuration
+const apexDonutConfig = (labels, data) => ({
+  chart: { type: 'donut' },
+  labels: labels,
+  series: data,
+  legend: { position: 'right' },
+  colors: ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'],
+  plotOptions: {
+    pie: {
+      donut: { size: '60%' }
     }
   }
 });"""
 
-# Chart.js bar chart config
-CHART_BAR_CONFIG = """// Chart.js bar chart configuration
-const barChartConfig = (labels, data, label) => ({
-  type: 'bar',
-  data: {
-    labels: labels,
-    datasets: [{
-      label: label,
-      data: data,
-      backgroundColor: 'rgba(54, 162, 235, 0.5)',
-      borderColor: 'rgba(54, 162, 235, 1)',
-      borderWidth: 1
-    }]
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        display: false
-      }
-    },
-    scales: {
-      y: {
-        beginAtZero: true
-      }
-    }
-  }
+# ApexCharts sparkline config
+APEX_SPARKLINE_CONFIG = """// ApexCharts sparkline configuration (minimal inline charts)
+const apexSparklineConfig = (data, color) => ({
+  chart: { type: 'area', sparkline: { enabled: true } },
+  stroke: { curve: 'smooth' },
+  fill: { opacity: 0.3 },
+  series: [{ data: data }],
+  colors: [color || '#22c55e']
 });"""
 
-# Chart.js pie chart config
-CHART_PIE_CONFIG = """// Chart.js pie chart configuration
-const pieChartConfig = (labels, data) => ({
-  type: 'pie',
-  data: {
-    labels: labels,
-    datasets: [{
-      data: data,
-      backgroundColor: [
-        'rgba(255, 99, 132, 0.7)',
-        'rgba(54, 162, 235, 0.7)',
-        'rgba(255, 206, 86, 0.7)',
-        'rgba(75, 192, 192, 0.7)',
-        'rgba(153, 102, 255, 0.7)'
-      ]
-    }]
+# ApexCharts mixed chart config (line + bar)
+APEX_MIXED_CONFIG = """// ApexCharts mixed chart configuration (line + bar)
+const apexMixedConfig = (categories, lineData, barData, lineName, barName) => ({
+  chart: { type: 'line', toolbar: { show: false } },
+  stroke: { width: [2, 0] },
+  plotOptions: {
+    bar: { columnWidth: '50%' }
   },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'right'
-      }
-    }
-  }
+  series: [
+    { name: lineName || 'Line', type: 'line', data: lineData },
+    { name: barName || 'Bar', type: 'column', data: barData }
+  ],
+  xaxis: { categories: categories },
+  yaxis: [{ min: 0 }, { opposite: true, min: 0 }],
+  tooltip: { shared: true }
 });"""
+
+# Legacy Chart.js aliases (for backward compatibility - now map to ApexCharts)
+CHART_LINE_CONFIG = APEX_LINE_CONFIG
+CHART_BAR_CONFIG = APEX_BAR_CONFIG
+CHART_PIE_CONFIG = APEX_DONUT_CONFIG
+
+# Data Bridge Primitives
+
+DATA_CONTEXT_SETUP = """// Data bridge context setup - use with createContext
+import { createContext, useContext } from 'solid-js';
+
+const DataContext = createContext({ data: null, mode: 'sample' });
+
+export function DataProvider(props) {
+  return (
+    <DataContext.Provider value={{ data: props.data, mode: props.mode || 'sample' }}>
+      {props.children}
+    </DataContext.Provider>
+  );
+}
+
+export function useDashboardData() {
+  const ctx = useContext(DataContext);
+  return ctx;
+}"""
+
+DATA_VALIDATOR = """// Runtime schema validation - valid approximate shape
+function validateDataShape(data, expectedKeys) {
+  if (!data || typeof data !== 'object') return { valid: false, missing: expectedKeys };
+  const missing = expectedKeys.filter(function(k) { return !(k in data); });
+  return { valid: missing.length === 0, missing: missing };
+}"""
+
+DATA_TRANSFORMER = """// Format/normalize data for chart consumption
+function transformToChartFormat(items, xField, yField) {
+  if (!Array.isArray(items)) return [];
+  return items.map(function(item) {
+    return { x: item[xField], y: item[yField] };
+  });
+}"""
+
+USE_DATA_BRIDGE = """// Hook for consuming data bridge context (sample/real swap)
+function useDataBridge() {
+  const ctx = useContext(DataContext);
+  const data = () => ctx?.data || null;
+  const mode = () => ctx?.mode || 'sample';
+  const isReal = () => mode() === 'real';
+  return { data, mode, isReal };
+}"""
 
 # Pagination helper
 PAGINATION_PRIMITIVE = """// Pagination helper
@@ -245,6 +289,16 @@ SOLIDJS_PRIMITIVES: Dict[str, str] = {
     "chart_line_config": CHART_LINE_CONFIG,
     "chart_bar_config": CHART_BAR_CONFIG,
     "chart_pie_config": CHART_PIE_CONFIG,
+    "apex_line_config": APEX_LINE_CONFIG,
+    "apex_bar_config": APEX_BAR_CONFIG,
+    "apex_area_config": APEX_AREA_CONFIG,
+    "apex_donut_config": APEX_DONUT_CONFIG,
+    "apex_sparkline_config": APEX_SPARKLINE_CONFIG,
+    "apex_mixed_config": APEX_MIXED_CONFIG,
+    "data_context_setup": DATA_CONTEXT_SETUP,
+    "data_validator": DATA_VALIDATOR,
+    "data_transformer": DATA_TRANSFORMER,
+    "use_data_bridge": USE_DATA_BRIDGE,
     "pagination": PAGINATION_PRIMITIVE,
     "debounce": DEBOUNCE_PRIMITIVE,
     "loading_skeleton": LOADING_SKELETON,

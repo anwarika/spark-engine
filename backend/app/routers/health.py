@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app import __version__
 from app.database import get_storage, get_redis
 from app.storage import SupabaseStorage, PostgresStorage
 import logging
@@ -33,6 +34,7 @@ async def health_check():
 
         return {
             "status": "healthy",
+            "version": __version__,
             "services": {
                 "database": db_status,
                 "type": db_type,
