@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from app.services.llm import LLMService
+from app.services.llm_gateway import LLMConfig
 from app.services.registry import RegistryService
 from app.services.compiler import ComponentCompiler
 from app.services.validator import CodeValidator
@@ -22,9 +23,9 @@ validator = CodeValidator()
 
 class A2AGenerateRequest(BaseModel):
     prompt: str
-    data_context: Optional[Dict[str, Any]] = None # The actual data or schema
+    data_context: Optional[Dict[str, Any]] = None  # The actual data or schema
     style_context: Optional[Dict[str, Any]] = None
-    provider_config: Optional[Dict[str, Any]] = None # BYO-LLM config
+    llm_config: Optional[LLMConfig] = None  # Per-request LLM override
 
 class A2AResponse(BaseModel):
     status: str # "success", "needs_info", "error"
@@ -67,14 +68,16 @@ If the user provides data (e.g. "sales": [...]), status is "sufficient".
     ]
     
     try:
-        analysis_response = await llm_service.provider.generate_response(
-            analysis_messages, 
+        analysis_content = await llm_service.chat_raw(
+            analysis_messages,
             analysis_system_prompt,
-            temperature=0.1
+            llm_config=body.llm_config,
+            response_format={"type": "json_object"},
+            temperature=0.1,
         )
         try:
-            analysis = json.loads(analysis_response.content)
-        except:
+            analysis = json.loads(analysis_content)
+        except Exception:
             logger.warning("Failed to parse analysis JSON")
             analysis = {"status": "sufficient"} 
             
@@ -98,8 +101,8 @@ If the user provides data (e.g. "sales": [...]), status is "sufficient".
     full_prompt = f"{body.prompt}\n{context_str}"
     
     response = await llm_service.generate_response(
-        full_prompt, 
-        provider_config=body.provider_config
+        full_prompt,
+        llm_config=body.llm_config,
     )
     
     if response.type != "component":
