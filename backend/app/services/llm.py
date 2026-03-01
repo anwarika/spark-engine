@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 from app.models import ChatResponse
 from app.config import settings
 from app.services.prompt_cache import PromptCache
-from app.services.llm_providers import BaseLLMProvider, OpenAIProvider, AnthropicProvider, OpenRouterProvider
+from app.services.llm_gateway import LLMGateway, LLMConfig
 import logging
 import json
 import re
@@ -10,13 +10,53 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
+def _config_from_settings() -> LLMConfig:
+    """Build LLMConfig from application settings."""
+    api_key = settings.llm_api_key
+    if not api_key:
+        provider_keys = {
+            "openai": settings.openai_api_key,
+            "openrouter": settings.openrouter_api_key,
+            "litellm": settings.litellm_api_key,
+            "llmgw": settings.llmgw_api_key,
+            "custom": settings.custom_llm_api_key,
+        }
+        api_key = provider_keys.get(settings.llm_provider)
+
+    model = settings.llm_model
+    if settings.llm_provider == "openai" and settings.openai_model:
+        model = settings.openai_model
+    elif settings.llm_provider == "openrouter" and settings.openrouter_model:
+        model = settings.openrouter_model
+
+    base_url = settings.llm_base_url
+    if not base_url and settings.llm_provider == "llmgw":
+        base_url = settings.llmgw_base_url
+    elif not base_url and settings.llm_provider == "custom":
+        base_url = settings.custom_llm_base_url
+
+    return LLMConfig(
+        provider=settings.llm_provider,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=settings.llm_temperature,
+        max_tokens=settings.llm_max_tokens,
+        openrouter_site_url=settings.openrouter_site_url,
+        openrouter_app_name=settings.openrouter_app_name,
+        fallback_provider=settings.llm_fallback_provider,
+        fallback_model=settings.llm_fallback_model,
+        fallback_api_key=settings.llm_fallback_api_key,
+        fallback_base_url=settings.llm_fallback_base_url,
+    )
+
+
 class LLMService:
     def __init__(self):
-        self.provider_name = settings.llm_provider
         self.prompt_cache = PromptCache()
-        
-        # Initialize provider based on config
-        self.provider: BaseLLMProvider = self._get_provider(self.provider_name)
+        default_config = _config_from_settings()
+        self.gateway = LLMGateway(default_config)
 
         self.system_prompt = """You are an expert at generating microapps for end users.
 You generate Spark native microapps: lightweight Solid.js micro-components for data visualization and interaction.
@@ -252,14 +292,6 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
         self._style_doc_mtime = 0.0
         self._style_cache_max_length = 8000
 
-    def _get_provider(self, name: str) -> BaseLLMProvider:
-        if name == "anthropic":
-            return AnthropicProvider(model=settings.anthropic_model)
-        elif name == "openrouter":
-            return OpenRouterProvider(model=settings.openrouter_model)
-        else:
-            return OpenAIProvider(model=settings.openai_model)
-
     def _strip_markdown_fences(self, content: str) -> str:
         """Remove markdown code fences from content."""
         content = re.sub(r'^```[\w]*\n?', '', content.strip(), flags=re.MULTILINE)
@@ -294,16 +326,13 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
     async def generate_response(
         self,
         user_message: str,
-        conversation_history: List[Dict[str, str]] = None,
-        provider_config: Optional[Dict[str, Any]] = None
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        llm_config: Optional[LLMConfig] = None,
     ) -> ChatResponse:
         if conversation_history is None:
             conversation_history = []
-        
-        # Allow dynamic provider selection per request
-        current_provider = self.provider
-        if provider_config and "provider" in provider_config:
-            current_provider = self._get_provider(provider_config["provider"])
+
+        gateway = LLMGateway(llm_config) if llm_config else self.gateway
 
         # Check prompt cache first
         cached_response = await self.prompt_cache.get_cached_response(user_message, "general")
@@ -317,29 +346,55 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
         if style_snippet:
             system_prompt = f"{system_prompt}\n\nDaisyUI reference (cached):\n{style_snippet}"
 
+        messages = (
+            [{"role": "system", "content": system_prompt}]
+            + conversation_history
+            + [{"role": "user", "content": user_message}]
+        )
+
         try:
-            response = await current_provider.generate_response(
-                conversation_history + [{"role": "user", "content": user_message}],
-                system_prompt
+            completion = await gateway.chat(
+                messages,
+                response_format={"type": "json_object"},
             )
-            
-            # Clean up code content if it has markdown code fences
+            content = completion.choices[0].message.content
+            parsed = json.loads(content)
+            response = ChatResponse(
+                type=parsed.get("type", "text"),
+                content=parsed.get("content", ""),
+                reasoning=parsed.get("reasoning", ""),
+            )
+
             if response.type == "component":
                 response.content = self._strip_markdown_fences(response.content)
-            
-            # Cache the response
+
             await self.prompt_cache.cache_response(user_message, "general", response)
-            
             return response
-            
+
         except Exception as e:
             logger.error(f"LLM error: {str(e)}")
             return ChatResponse(
                 type="text",
                 content=f"I apologize, but I encountered an error: {str(e)}",
-                reasoning="Error fallback"
+                reasoning="Error fallback",
             )
 
     @property
-    def model(self):
-        return self.provider.model
+    def model(self) -> str:
+        return self.gateway.config.model
+
+    async def chat_raw(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: str,
+        llm_config: Optional[LLMConfig] = None,
+        **kwargs: Any,
+    ) -> str:
+        """
+        Low-level chat for analysis or custom flows. Bypasses cache.
+        Returns raw message content.
+        """
+        gateway = LLMGateway(llm_config) if llm_config else self.gateway
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        completion = await gateway.chat(full_messages, **kwargs)
+        return completion.choices[0].message.content or ""
