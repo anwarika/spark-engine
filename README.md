@@ -46,6 +46,17 @@ curl -X POST http://localhost:8000/api/a2a/generate \
   }'
 ```
 
+**Iterate on existing component** — Pass `component_id` to edit instead of create:
+
+```bash
+curl -X POST http://localhost:8000/api/a2a/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Add a KPI card for total revenue",
+    "component_id": "abc-123-existing-component-uuid"
+  }'
+```
+
 **Per-request LLM override** — Use a different provider/model per request:
 
 ```bash
@@ -81,6 +92,7 @@ See [.env.example](.env.example) for the full config.
 
 - **Generative UI**: LLM produces Solid.js components—dashboards, charts, tables, KPIs
 - **9 Pre-built Templates**: StatCard, DataTable, LineChart, BarChart, DonutChart, HeatmapChart, MixedChart, ListWithSearch, MetricsDashboard
+- **Studio Mode iteration**: Multi-turn microapp editing (bolt.new-style)—click "Iterate" on any microapp to open a split-panel studio with live preview and scoped chat; revert/undo support
 - **Data Bridge**: Sample → real data swap without regeneration
 - **CAG**: Content-addressable generation for deduplication
 - **Security**: AST validation, forbidden API detection, sandboxed iframe execution
@@ -130,9 +142,12 @@ See [.env.example](.env.example) for the full config.
 
 ### Chat
 
-| Method | Endpoint            | Description       |
-|--------|---------------------|-------------------|
-| POST   | /api/chat/message    | Send message, get response |
+| Method | Endpoint                  | Description                                      |
+|--------|---------------------------|--------------------------------------------------|
+| POST   | /api/chat/message         | Send message, get response (non-streaming)      |
+| POST   | /api/chat/message/stream  | Send message, get SSE stream (progress + done)   |
+
+Chat supports `component_id` in the request body to iterate on an existing microapp.
 
 ## Setup
 
