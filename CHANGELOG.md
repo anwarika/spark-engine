@@ -5,6 +5,29 @@ All notable changes to Spark will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-03-01
+
+### Added
+
+- **LLM Gateway abstraction layer** (`backend/app/services/llm_gateway.py`)
+  - Unified OpenAI-compatible client for `openai`, `openrouter`, `litellm`, `llmgw`, `custom` providers
+  - Built-in fallback provider support
+  - Per-request `LLMConfig` override via A2A endpoint
+- New env vars: `LLM_PROVIDER`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `LLMGW_BASE_URL`, `LLMGW_API_KEY`, `LITELLM_API_KEY`, `LLM_FALLBACK_*` family
+
+### Changed
+
+- `A2AGenerateRequest.provider_config` (Dict) → `llm_config` (LLMConfig) — structured per-request override
+- LLMService now uses async `AsyncOpenAI` client for all providers
+
+### Removed
+
+- `llm_providers.py` (OpenAIProvider / AnthropicProvider / OpenRouterProvider) — replaced by LLMGateway
+
+### Breaking Changes
+
+- A2A API: `provider_config` field renamed to `llm_config`; type changed from Dict to `LLMConfig` schema
+
 ## [2.0.0] - 2026-02-10
 
 ### ⚠️ BREAKING CHANGES
