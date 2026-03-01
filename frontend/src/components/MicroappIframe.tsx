@@ -3,11 +3,13 @@ import React, { useEffect, useState, useRef } from 'react';
 interface MicroappIframeProps {
     componentId: string;
     onFeedback?: (rating: 1 | 5) => void;
+    onIterate?: () => void;
 }
 
 export const MicroappIframe: React.FC<MicroappIframeProps> = ({
     componentId,
-    onFeedback
+    onFeedback,
+    onIterate
 }) => {
     const iframeUrl = `/api/components/${componentId}/iframe`;
     const sandbox = 'allow-scripts allow-same-origin';
@@ -49,10 +51,20 @@ export const MicroappIframe: React.FC<MicroappIframeProps> = ({
     return (
         <div className="card bg-base-200 shadow-xl">
             <div className="card-body p-2">
-                <div className="flex justify-between items-center mb-2 gap-2">
+                <div className="flex justify-between items-center mb-2 gap-2 flex-wrap">
                     <span className="badge badge-sm badge-outline">
                         Data: {dataMode === 'sample' ? 'Sample' : 'Real'}
                     </span>
+                    <div className="flex gap-2 items-center">
+                        {onIterate && (
+                            <button
+                                className="btn btn-xs btn-primary"
+                                onClick={onIterate}
+                                title="Edit this microapp in studio mode"
+                            >
+                                ✏ Iterate
+                            </button>
+                        )}
                     <div className="join">
                         <button
                             className={`btn btn-xs join-item ${dataMode === 'sample' ? 'btn-active' : ''}`}
@@ -68,6 +80,7 @@ export const MicroappIframe: React.FC<MicroappIframeProps> = ({
                         >
                             Real
                         </button>
+                    </div>
                     </div>
                 </div>
                 <iframe

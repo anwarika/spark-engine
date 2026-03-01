@@ -379,6 +379,84 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
                 reasoning="Error fallback",
             )
 
+    _EDIT_PROMPT_TEMPLATE = """You are editing an existing Solid.js microapp component. The user wants you to apply a specific change.
+
+CURRENT COMPONENT CODE:
+```solidjs
+<<<EXISTING_CODE>>>
+```
+
+USER'S EDIT REQUEST:
+<<<EDIT_INSTRUCTION>>>
+
+TASK:
+1. Apply ONLY the change the user requested. Do not add unrelated features or refactor other parts.
+2. Return the COMPLETE updated component code (full file) — do not return a diff or partial snippet.
+3. PRESERVE all existing sections, layout, and behavior when the user asks to "add" something (e.g. "add a KPI card") — add the new element without removing existing ones.
+4. For layout changes, use Tailwind grid (grid grid-cols-2 gap-4, grid-cols-3), flex (flex flex-wrap gap-4), and DaisyUI stat/card components to create rich multi-section dashboards.
+5. Same rules as generation: Solid.js only, createResource for data, no window/fetch/eval, ES2015 syntax only, no optional chaining or nullish coalescing.
+6. Components MUST fetch from /api/components/{{ component_id }}/data via window.__COMPONENT_ID.
+
+Response format (JSON only, no markdown fences):
+{{
+  "type": "component",
+  "content": "<complete Solid.js component code>",
+  "reasoning": "<brief note on what you changed>"
+}}"""
+
+    async def generate_edit_response(
+        self,
+        edit_instruction: str,
+        existing_code: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        llm_config: Optional[LLMConfig] = None,
+    ) -> ChatResponse:
+        """Generate an edited component from user instruction and existing code."""
+        if conversation_history is None:
+            conversation_history = []
+
+        gateway = LLMGateway(llm_config) if llm_config else self.gateway
+
+        self._refresh_style_reference()
+        style_snippet = self._get_style_reference_snippet()
+        system_prompt = self._EDIT_PROMPT_TEMPLATE.replace(
+            "<<<EXISTING_CODE>>>", existing_code
+        ).replace("<<<EDIT_INSTRUCTION>>>", edit_instruction)
+        if style_snippet:
+            system_prompt = f"{system_prompt}\n\nDaisyUI reference (cached):\n{style_snippet}"
+
+        messages = (
+            [{"role": "system", "content": system_prompt}]
+            + conversation_history
+            + [{"role": "user", "content": edit_instruction}]
+        )
+
+        try:
+            completion = await gateway.chat(
+                messages,
+                response_format={"type": "json_object"},
+            )
+            content = completion.choices[0].message.content
+            parsed = json.loads(content)
+            response = ChatResponse(
+                type=parsed.get("type", "component"),
+                content=parsed.get("content", ""),
+                reasoning=parsed.get("reasoning", ""),
+            )
+
+            if response.type == "component":
+                response.content = self._strip_markdown_fences(response.content)
+
+            return response
+
+        except Exception as e:
+            logger.error(f"LLM edit error: {str(e)}")
+            return ChatResponse(
+                type="text",
+                content=f"I apologize, but I encountered an error while editing: {str(e)}",
+                reasoning="Edit error fallback",
+            )
+
     @property
     def model(self) -> str:
         return self.gateway.config.model

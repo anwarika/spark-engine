@@ -8,7 +8,7 @@ export const ComponentsView: React.FC = () => {
   const [components, setComponents] = useState<Component[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { messages } = useChatStore();
+  const { messages, enterStudioMode } = useChatStore();
 
   // Extract component IDs from messages
   const componentIdsFromMessages = messages
@@ -102,7 +102,13 @@ export const ComponentsView: React.FC = () => {
                 {component.status}
               </div>
             </div>
-            <MicroappIframe componentId={component.id} />
+            <MicroappIframe
+              componentId={component.id}
+              onIterate={() => {
+                const srcMsg = messages.find((m) => m.componentId === component.id);
+                enterStudioMode(component.id, srcMsg?.id ?? '');
+              }}
+            />
             <div className="text-xs text-base-content/50">
               Created: {new Date(component.created_at).toLocaleString()}
             </div>

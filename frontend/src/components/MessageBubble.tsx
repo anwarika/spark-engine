@@ -2,12 +2,14 @@ import React from 'react';
 import type { Message } from '../types';
 import { MicroappIframe } from './MicroappIframe';
 import { componentAPI } from '../services/api';
+import { useChatStore } from '../store/chatStore';
 
 interface MessageBubbleProps {
   message: Message;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
+  const enterStudioMode = useChatStore((s) => s.enterStudioMode);
   const isUser = message.role === 'user';
 
   const handleFeedback = async (rating: 1 | 5) => {
@@ -40,7 +42,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
             <p className="text-sm opacity-80 mb-2">
               Generated a microapp for you:
             </p>
-            <MicroappIframe componentId={message.componentId} onFeedback={handleFeedback} />
+            <MicroappIframe
+              componentId={message.componentId}
+              onFeedback={handleFeedback}
+              onIterate={
+                message.componentId
+                  ? () => enterStudioMode(message.componentId!, message.id)
+                  : undefined
+              }
+            />
             {message.reasoning && (
               <p className="text-xs opacity-60 mt-2">{message.reasoning}</p>
             )}
