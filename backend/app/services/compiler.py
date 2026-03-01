@@ -1,3 +1,4 @@
+import re
 import subprocess
 import tempfile
 import os
@@ -7,6 +8,14 @@ import logging
 import json
 from typing import Optional
 from app.models import CompilationResult
+
+# Solid.js primitives that must be imported when used (prevents "X is not defined" at runtime)
+SOLID_PRIMITIVES = [
+    "createEffect", "createSignal", "createResource", "createMemo", "createContext",
+    "createRenderEffect", "createDeferred", "createSelector", "createUniqueId",
+    "For", "Show", "Switch", "Index", "Match", "ErrorBoundary", "Suspense", "SuspenseList",
+    "onMount", "onCleanup", "onError", "useContext", "batch", "untrack", "children"
+]
 from app.config import settings
 from app.database import get_redis
 
@@ -93,6 +102,7 @@ class ComponentCompiler:
         start_time = time.time()
 
         try:
+            code = self._ensure_solid_imports(code)
             bundle = await self._run_esbuild(code)
             compile_time_ms = int((time.time() - start_time) * 1000)
             bundle_size = len(bundle.encode('utf-8'))
@@ -133,6 +143,42 @@ class ComponentCompiler:
                 error=str(e),
                 compile_time_ms=compile_time_ms
             )
+
+    def _ensure_solid_imports(self, code: str) -> str:
+        """
+        Ensure all Solid.js primitives used in the code are imported from 'solid-js'.
+        Fixes 'createEffect is not defined' and similar errors when LLM omits imports.
+        """
+        # Find which primitives are used (as identifiers, not in strings)
+        used = []
+        for name in SOLID_PRIMITIVES:
+            if re.search(rf"\b{re.escape(name)}\b", code):
+                used.append(name)
+        if not used:
+            return code
+
+        # Find existing solid-js import(s)
+        # Match: import { a, b, c } from 'solid-js' or "solid-js"
+        import_pat = r"import\s*\{([^}]+)\}\s*from\s*['\"]solid-js['\"]"
+        match = re.search(import_pat, code)
+        if match:
+            existing = [x.strip().split(" as ")[0].strip() for x in match.group(1).split(",")]
+            missing = [p for p in used if p not in existing]
+            if not missing:
+                return code
+            # Add missing to the import
+            new_imports = ", ".join(sorted(set(existing + missing)))
+            new_stmt = f"import {{ {new_imports} }} from 'solid-js'"
+            return re.sub(import_pat, new_stmt, code, count=1)
+        else:
+            # No solid-js import; add one before the first import or at top
+            imports_str = ", ".join(sorted(set(used)))
+            add = f"import {{ {imports_str} }} from 'solid-js';\n"
+            # Insert after last 'use strict' or at start
+            first_import = re.search(r"^\s*import\s+", code, re.MULTILINE)
+            if first_import:
+                return code[: first_import.start()] + add + code[first_import.start() :]
+            return add + code
 
     async def _run_esbuild(self, code: str) -> str:
         # Write component to workspace

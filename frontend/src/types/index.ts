@@ -7,6 +7,14 @@ export interface Message {
   timestamp: Date;
 }
 
+export interface SendMessagePayload {
+  session_id: string;
+  message: string;
+  tenant_id: string;
+  user_id: string;
+  component_id?: string;  // Present in studio mode for iteration
+}
+
 export interface ChatResponse {
   type: 'text' | 'component';
   content: string;

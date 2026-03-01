@@ -22,9 +22,57 @@ validator = CodeValidator()
 compiler = ComponentCompiler()
 cag_service = CAGService()
 
+MAX_EDIT_RETRIES = 2  # 1 initial attempt + 1 retry on validation/compile error
+
 def _sse(event: str, data: dict) -> str:
     # SSE format: event + data + blank line
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+async def _generate_edit_with_retry(
+    instruction: str,
+    existing_code: str,
+    conversation_history: list,
+    llm_config=None,
+) -> tuple:
+    """Run generate_edit_response with one automatic retry on validate/compile failure.
+
+    Returns (llm_response, validation_result, compilation_result, last_error_message).
+    On success, last_error_message is None.
+    """
+    last_error: str | None = None
+    for attempt in range(MAX_EDIT_RETRIES):
+        llm_response = await llm_service.generate_edit_response(
+            instruction,
+            existing_code,
+            conversation_history,
+            llm_config=llm_config,
+            prior_error=last_error,
+        )
+        if llm_response.type != "component":
+            return llm_response, None, None, None
+
+        validation_result = validator.validate(llm_response.content)
+        if not validation_result.valid:
+            last_error = "Validation errors:\n" + "\n".join(validation_result.errors)
+            logger.warning(f"Edit attempt {attempt + 1} validation failed; retrying: {last_error[:120]}")
+            if attempt < MAX_EDIT_RETRIES - 1:
+                continue
+            return llm_response, validation_result, None, last_error
+
+        code_hash = ComponentCompiler.compute_hash(llm_response.content)
+        compilation_result = await compiler.compile(llm_response.content, code_hash)
+        if not compilation_result.success:
+            last_error = f"Compilation error: {compilation_result.error}"
+            logger.warning(f"Edit attempt {attempt + 1} compilation failed; retrying: {last_error[:120]}")
+            if attempt < MAX_EDIT_RETRIES - 1:
+                continue
+            return llm_response, validation_result, compilation_result, last_error
+
+        return llm_response, validation_result, compilation_result, None
+
+    # Should not reach here
+    return llm_response, None, None, last_error
 
 
 @router.post("/message")
@@ -76,6 +124,94 @@ async def chat_message(message: ChatMessage, request: Request):
         await storage.save_chat_message(session_db_id, "user", message.message)
     except Exception as e:
         logger.warning(f"Failed to save user message to database: {e}")
+
+    # Iteration mode: component_id provided, edit existing component
+    if message.component_id:
+        parent_id = message.component_id
+        existing_component = await storage.get_component(parent_id, tenant_id)
+        if not existing_component:
+            raise HTTPException(status_code=404, detail="Component not found for iteration")
+
+        llm_start = time.time()
+        # Fix 4: auto-retry on validation/compile error with error context fed back
+        llm_response, validation_result, compilation_result, last_error = \
+            await _generate_edit_with_retry(
+                message.message,
+                existing_component["solidjs_code"],
+                conversation_history,
+            )
+        timing_breakdown["llm_generation_ms"] = round((time.time() - llm_start) * 1000, 2)
+
+        component_id = None
+        if llm_response.type == "component":
+            if last_error:
+                error_message = f"Could not generate a valid component after {MAX_EDIT_RETRIES} attempts.\nLast error: {last_error}"
+                try:
+                    await storage.save_chat_message(
+                        session_db_id, "assistant", error_message,
+                        llm_model=llm_service.model, reasoning=llm_response.reasoning
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to save error message: {e}")
+                return ChatResponse(type="text", content=error_message, reasoning="Edit failed after retries")
+
+            db_save_start = time.time()
+            component_name = f"Component-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+            request_start_timestamp_ms = int(request_start_time * 1000)
+            description_with_metadata = json.dumps({
+                "text": f"Iteration: {message.message[:100]}",
+                "request_start_timestamp_ms": request_start_timestamp_ms,
+            })
+            generation_metadata = {
+                "parent_component_id": parent_id,
+                "prompt_original": message.message,
+                "template_name": None,
+                "data_profile": "ecommerce",
+                "reuse_count": 0,
+                "source": "iteration",
+            }
+            code_hash = ComponentCompiler.compute_hash(llm_response.content)
+            try:
+                component_id = await storage.create_component({
+                    "tenant_id": tenant_id,
+                    "user_id": user_id,
+                    "name": component_name,
+                    "description": description_with_metadata,
+                    "solidjs_code": llm_response.content,
+                    "code_hash": code_hash,
+                    "generation_metadata": json.dumps(generation_metadata),
+                    "validated": True,
+                    "compiled": True,
+                    "compiled_bundle": compilation_result.bundle,
+                    "bundle_size_bytes": compilation_result.bundle_size,
+                    "status": "active",
+                })
+            except Exception as e:
+                logger.error(f"Failed to create component: {e}")
+                raise HTTPException(status_code=500, detail=f"Database component save failed: {e}")
+            timing_breakdown["db_save_component_ms"] = round((time.time() - db_save_start) * 1000, 2)
+
+        db_message_start = time.time()
+        try:
+            await storage.save_chat_message(
+                session_db_id, "assistant", llm_response.content,
+                component_id=component_id,
+                llm_model=llm_service.model,
+                reasoning=llm_response.reasoning
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save assistant message to database: {e}")
+        timing_breakdown["db_save_message_ms"] = round((time.time() - db_message_start) * 1000, 2)
+        timing_breakdown["total_ms"] = round((time.time() - request_start_time) * 1000, 2)
+
+        # In iteration mode, return description only — not the raw code
+        display_content = llm_response.reasoning if message.component_id else llm_response.content
+        return ChatResponse(
+            type=llm_response.type,
+            content=display_content,
+            component_id=component_id,
+            reasoning=llm_response.reasoning,
+        )
 
     # CAG: Check for existing component before LLM generation
     cag_start = time.time()
@@ -380,55 +516,94 @@ async def chat_message_stream(message: ChatMessage, request: Request):
             except Exception as e:
                 logger.warning(f"Failed to save user message to database: {e}")
 
-            # LLM generation
-            yield _sse("progress", {"step": "llm_generation", "status": "start"})
-            llm_start = time.time()
-            llm_response = await llm_service.generate_response(
-                message.message,
-                conversation_history
-            )
-            timing_breakdown["llm_generation_ms"] = round((time.time() - llm_start) * 1000, 2)
-            yield _sse("progress", {"step": "llm_generation", "status": "done", "ms": timing_breakdown["llm_generation_ms"]})
-
             component_id = None
             compilation_result = None
+            parent_component_id = None
+
+            # Iteration mode: component_id provided, edit existing component
+            if message.component_id:
+                parent_component_id = message.component_id
+                existing_component = await storage.get_component(parent_component_id, tenant_id)
+                if not existing_component:
+                    yield _sse("error", {"message": "Component not found for iteration"})
+                    return
+
+                yield _sse("progress", {"step": "llm_generation", "status": "start"})
+                llm_start = time.time()
+                # Fix 4: auto-retry with error context fed back to the LLM
+                llm_response, _val_result, compilation_result, last_error = \
+                    await _generate_edit_with_retry(
+                        message.message,
+                        existing_component["solidjs_code"],
+                        conversation_history,
+                    )
+                timing_breakdown["llm_generation_ms"] = round((time.time() - llm_start) * 1000, 2)
+                yield _sse("progress", {"step": "llm_generation", "status": "done", "ms": timing_breakdown["llm_generation_ms"]})
+
+                if llm_response.type == "component" and last_error:
+                    # All retries exhausted
+                    error_message = f"Could not generate a valid component after {MAX_EDIT_RETRIES} attempts.\nLast error: {last_error}"
+                    yield _sse("done", {
+                        "type": "text",
+                        "content": error_message,
+                        "reasoning": "Edit failed after retries",
+                        "timing": {**timing_breakdown, "total_ms": round((time.time() - request_start_time) * 1000, 2)}
+                    })
+                    return
+            else:
+                # New generation
+                yield _sse("progress", {"step": "llm_generation", "status": "start"})
+                llm_start = time.time()
+                llm_response = await llm_service.generate_response(
+                    message.message,
+                    conversation_history
+                )
+                timing_breakdown["llm_generation_ms"] = round((time.time() - llm_start) * 1000, 2)
+                yield _sse("progress", {"step": "llm_generation", "status": "done", "ms": timing_breakdown["llm_generation_ms"]})
+                compilation_result = None
 
             if llm_response.type == "component":
-                # Validation
-                yield _sse("progress", {"step": "validation", "status": "start"})
-                validation_start = time.time()
-                validation_result = validator.validate(llm_response.content)
-                timing_breakdown["validation_ms"] = round((time.time() - validation_start) * 1000, 2)
-                if not validation_result.valid:
-                    error_message = "Component validation failed:\n" + "\n".join(validation_result.errors)
-                    yield _sse("progress", {"step": "validation", "status": "error", "ms": timing_breakdown["validation_ms"]})
-                    yield _sse("done", {
-                        "type": "text",
-                        "content": error_message,
-                        "reasoning": "Validation failed",
-                        "timing": {**timing_breakdown, "total_ms": round((time.time() - request_start_time) * 1000, 2)}
-                    })
-                    return
-                yield _sse("progress", {"step": "validation", "status": "done", "ms": timing_breakdown["validation_ms"]})
+                if not message.component_id:
+                    # New generation path: validate and compile here
+                    yield _sse("progress", {"step": "validation", "status": "start"})
+                    validation_start = time.time()
+                    validation_result = validator.validate(llm_response.content)
+                    timing_breakdown["validation_ms"] = round((time.time() - validation_start) * 1000, 2)
+                    if not validation_result.valid:
+                        error_message = "Component validation failed:\n" + "\n".join(validation_result.errors)
+                        yield _sse("progress", {"step": "validation", "status": "error", "ms": timing_breakdown["validation_ms"]})
+                        yield _sse("done", {
+                            "type": "text",
+                            "content": error_message,
+                            "reasoning": "Validation failed",
+                            "timing": {**timing_breakdown, "total_ms": round((time.time() - request_start_time) * 1000, 2)}
+                        })
+                        return
+                    yield _sse("progress", {"step": "validation", "status": "done", "ms": timing_breakdown["validation_ms"]})
 
-                code_hash = ComponentCompiler.compute_hash(llm_response.content)
+                    code_hash = ComponentCompiler.compute_hash(llm_response.content)
 
-                # Compilation
-                yield _sse("progress", {"step": "compilation", "status": "start"})
-                compilation_start = time.time()
-                compilation_result = await compiler.compile(llm_response.content, code_hash)
-                timing_breakdown["compilation_ms"] = round((time.time() - compilation_start) * 1000, 2)
-                if not compilation_result.success:
-                    error_message = f"Component compilation failed: {compilation_result.error}"
-                    yield _sse("progress", {"step": "compilation", "status": "error", "ms": timing_breakdown["compilation_ms"]})
-                    yield _sse("done", {
-                        "type": "text",
-                        "content": error_message,
-                        "reasoning": "Compilation failed",
-                        "timing": {**timing_breakdown, "total_ms": round((time.time() - request_start_time) * 1000, 2)}
-                    })
-                    return
-                yield _sse("progress", {"step": "compilation", "status": "done", "ms": timing_breakdown["compilation_ms"]})
+                    yield _sse("progress", {"step": "compilation", "status": "start"})
+                    compilation_start = time.time()
+                    compilation_result = await compiler.compile(llm_response.content, code_hash)
+                    timing_breakdown["compilation_ms"] = round((time.time() - compilation_start) * 1000, 2)
+                    if not compilation_result.success:
+                        error_message = f"Component compilation failed: {compilation_result.error}"
+                        yield _sse("progress", {"step": "compilation", "status": "error", "ms": timing_breakdown["compilation_ms"]})
+                        yield _sse("done", {
+                            "type": "text",
+                            "content": error_message,
+                            "reasoning": "Compilation failed",
+                            "timing": {**timing_breakdown, "total_ms": round((time.time() - request_start_time) * 1000, 2)}
+                        })
+                        return
+                    yield _sse("progress", {"step": "compilation", "status": "done", "ms": timing_breakdown["compilation_ms"]})
+                else:
+                    # Iteration path: validate/compile already done by _generate_edit_with_retry
+                    # Emit progress steps as done for UI consistency
+                    yield _sse("progress", {"step": "validation", "status": "done", "ms": 0})
+                    yield _sse("progress", {"step": "compilation", "status": "done", "ms": 0})
+                    code_hash = ComponentCompiler.compute_hash(llm_response.content)
 
                 # Save component (so we can emit microapp_ready ASAP)
                 yield _sse("progress", {"step": "db_save_component", "status": "start"})
@@ -436,24 +611,30 @@ async def chat_message_stream(message: ChatMessage, request: Request):
                 component_name = f"Component-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
                 request_start_timestamp_ms = int(request_start_time * 1000)
                 description_with_metadata = json.dumps({
-                    "text": f"Generated from: {message.message[:100]}",
+                    "text": f"Iteration: {message.message[:100]}" if parent_component_id else f"Generated from: {message.message[:100]}",
                     "request_start_timestamp_ms": request_start_timestamp_ms
                 })
-                
-                try:
-                    component_id = await storage.create_component({
-                        "tenant_id": tenant_id,
-                        "user_id": user_id,
-                        "name": component_name,
-                        "description": description_with_metadata,
-                        "solidjs_code": llm_response.content,
-                        "code_hash": code_hash,
-                        "validated": True,
-                        "compiled": True,
-                        "compiled_bundle": compilation_result.bundle,
-                        "bundle_size_bytes": compilation_result.bundle_size,
-                        "status": "active"
+                create_payload = {
+                    "tenant_id": tenant_id,
+                    "user_id": user_id,
+                    "name": component_name,
+                    "description": description_with_metadata,
+                    "solidjs_code": llm_response.content,
+                    "code_hash": code_hash,
+                    "validated": True,
+                    "compiled": True,
+                    "compiled_bundle": compilation_result.bundle,
+                    "bundle_size_bytes": compilation_result.bundle_size,
+                    "status": "active"
+                }
+                if parent_component_id:
+                    create_payload["generation_metadata"] = json.dumps({
+                        "parent_component_id": parent_component_id,
+                        "prompt_original": message.message,
+                        "source": "iteration",
                     })
+                try:
+                    component_id = await storage.create_component(create_payload)
                 except Exception as e:
                      logger.error(f"Failed to save component: {e}")
                      yield _sse("error", {"message": "Failed to save component"})
@@ -461,7 +642,10 @@ async def chat_message_stream(message: ChatMessage, request: Request):
                 
                 timing_breakdown["db_save_component_ms"] = round((time.time() - db_save_start) * 1000, 2)
                 yield _sse("progress", {"step": "db_save_component", "status": "done", "ms": timing_breakdown["db_save_component_ms"]})
-                yield _sse("microapp_ready", {"component_id": component_id})
+                microapp_data = {"component_id": component_id}
+                if parent_component_id:
+                    microapp_data["parent_component_id"] = parent_component_id
+                yield _sse("microapp_ready", microapp_data)
 
             # Save assistant response (best-effort)
             yield _sse("progress", {"step": "db_save_message", "status": "start"})
@@ -479,9 +663,11 @@ async def chat_message_stream(message: ChatMessage, request: Request):
             yield _sse("progress", {"step": "db_save_message", "status": "done", "ms": timing_breakdown["db_save_message_ms"]})
 
             timing_breakdown["total_ms"] = round((time.time() - request_start_time) * 1000, 2)
+            # In iteration mode, show description only — not the raw code
+            display_content = llm_response.reasoning if parent_component_id else llm_response.content
             yield _sse("done", {
                 "type": llm_response.type,
-                "content": llm_response.content,
+                "content": display_content,
                 "component_id": component_id,
                 "reasoning": llm_response.reasoning,
                 "timing": timing_breakdown

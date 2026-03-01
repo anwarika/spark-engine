@@ -1,11 +1,18 @@
 import { useState } from 'react';
+import { useChatStore } from './store/chatStore';
 import { ChatWindow } from './components/ChatWindow';
 import { ComponentsView } from './components/ComponentsView';
+import { StudioView } from './components/StudioView';
 
 type Tab = 'chat' | 'components';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('chat');
+  const studioComponentId = useChatStore((s) => s.studioComponentId);
+
+  if (studioComponentId) {
+    return <StudioView />;
+  }
 
   return (
     <div className="h-screen flex flex-col bg-base-100">
