@@ -379,6 +379,10 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
                 reasoning="Error fallback",
             )
 
+    # Delimiter used to extract the schema block from the main system prompt
+    _SCHEMA_START_MARKER = "MOCK DATA AVAILABLE:"
+    _SCHEMA_END_MARKER = "DATA BRIDGE (sample to real swap):"
+
     _EDIT_PROMPT_TEMPLATE = """You are editing an existing Solid.js microapp component. The user wants you to apply a specific change.
 
 CURRENT COMPONENT CODE:
@@ -389,20 +393,45 @@ CURRENT COMPONENT CODE:
 USER'S EDIT REQUEST:
 <<<EDIT_INSTRUCTION>>>
 
+FIELDS ALREADY USED IN THE CURRENT CODE (safe to reuse — prefer these over inventing new ones):
+<<<EXISTING_FIELDS>>>
+
+VALID DATA SCHEMA (use ONLY these field paths when accessing apiData() — do NOT invent field names):
+<<<DATA_SCHEMA>>>
+
 TASK:
 1. Apply ONLY the change the user requested. Do not add unrelated features or refactor other parts.
 2. Return the COMPLETE updated component code (full file) — do not return a diff or partial snippet.
-3. PRESERVE all existing sections, layout, and behavior when the user asks to "add" something (e.g. "add a KPI card") — add the new element without removing existing ones.
-4. For layout changes, use Tailwind grid (grid grid-cols-2 gap-4, grid-cols-3), flex (flex flex-wrap gap-4), and DaisyUI stat/card components to create rich multi-section dashboards.
-5. Same rules as generation: Solid.js only, createResource for data, no window/fetch/eval, ES2015 syntax only, no optional chaining or nullish coalescing.
-6. Components MUST fetch from /api/components/{{ component_id }}/data via window.__COMPONENT_ID.
+3. PRESERVE all existing sections, layout, and behaviour when the user asks to "add" something — add without removing.
+4. For layout changes, use Tailwind grid (grid grid-cols-2 gap-4, grid-cols-3), flex, and DaisyUI stat/card components.
+5. Same rules as generation: Solid.js only, createResource for data, no window/fetch/eval, ES2015 syntax only.
+6. CRITICAL: When accessing data fields, always use the exact snake_case paths listed in VALID DATA SCHEMA above.
+   Example: use apiData().summary.total_revenue NOT apiData().totalRevenue
+7. Guard every data access: if (!apiData() || !apiData().summary) return null;
 
 Response format (JSON only, no markdown fences):
-{{
+{
   "type": "component",
   "content": "<complete Solid.js component code>",
   "reasoning": "<brief note on what you changed>"
-}}"""
+}"""
+
+    def _extract_schema_section(self) -> str:
+        """Pull the MOCK DATA AVAILABLE block from the main system prompt."""
+        start = self.system_prompt.find(self._SCHEMA_START_MARKER)
+        end = self.system_prompt.find(self._SCHEMA_END_MARKER)
+        if start == -1 or end == -1 or end <= start:
+            return "(schema not available)"
+        return self.system_prompt[start:end].strip()
+
+    def _extract_existing_fields(self, code: str) -> str:
+        """Scan existing code for apiData() property accesses and return a bullet list."""
+        # Matches patterns like: apiData().summary.total_revenue, apiData().metrics, etc.
+        raw_matches = re.findall(r'apiData\(\)(?:\.\w+)+', code)
+        if not raw_matches:
+            return "(no existing apiData accesses found)"
+        unique_sorted = sorted(set(raw_matches))
+        return "\n".join(f"  - {m}" for m in unique_sorted)
 
     async def generate_edit_response(
         self,
@@ -410,8 +439,14 @@ Response format (JSON only, no markdown fences):
         existing_code: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         llm_config: Optional[LLMConfig] = None,
+        prior_error: Optional[str] = None,
     ) -> ChatResponse:
-        """Generate an edited component from user instruction and existing code."""
+        """Generate an edited component from user instruction and existing code.
+
+        Args:
+            prior_error: If set, this is a retry — inject the previous failure
+                         into the instruction so the LLM can self-correct.
+        """
         if conversation_history is None:
             conversation_history = []
 
@@ -419,22 +454,40 @@ Response format (JSON only, no markdown fences):
 
         self._refresh_style_reference()
         style_snippet = self._get_style_reference_snippet()
-        system_prompt = self._EDIT_PROMPT_TEMPLATE.replace(
-            "<<<EXISTING_CODE>>>", existing_code
-        ).replace("<<<EDIT_INSTRUCTION>>>", edit_instruction)
+
+        # Fix 3: anchor to fields already present in the code
+        existing_fields = self._extract_existing_fields(existing_code)
+        # Fix 1: inject full data schema
+        data_schema = self._extract_schema_section()
+
+        effective_instruction = edit_instruction
+        if prior_error:
+            effective_instruction = (
+                f"{edit_instruction}\n\n"
+                f"IMPORTANT — your previous attempt produced this error, fix it:\n{prior_error}"
+            )
+
+        system_prompt = (
+            self._EDIT_PROMPT_TEMPLATE
+            .replace("<<<EXISTING_CODE>>>", existing_code)
+            .replace("<<<EDIT_INSTRUCTION>>>", effective_instruction)
+            .replace("<<<EXISTING_FIELDS>>>", existing_fields)
+            .replace("<<<DATA_SCHEMA>>>", data_schema)
+        )
         if style_snippet:
             system_prompt = f"{system_prompt}\n\nDaisyUI reference (cached):\n{style_snippet}"
 
         messages = (
             [{"role": "system", "content": system_prompt}]
             + conversation_history
-            + [{"role": "user", "content": edit_instruction}]
+            + [{"role": "user", "content": effective_instruction}]
         )
 
         try:
             completion = await gateway.chat(
                 messages,
                 response_format={"type": "json_object"},
+                temperature=0.15,  # Fix 2: deterministic edits
             )
             content = completion.choices[0].message.content
             parsed = json.loads(content)
