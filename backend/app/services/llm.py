@@ -189,11 +189,58 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
         self._style_doc_mtime = 0.0
         self._style_cache_max_length = 8000
 
+    def _clean_component_code(self, content: str) -> str:
+        """Fully normalise LLM-generated component code.
+
+        Problems the LLM causes:
+        1. Double-escapes newlines: the JSON content field contains literal \\n
+           (backslash + n) instead of real newlines.  After json.loads these
+           arrive as chr(92)+chr(110) in the Python string.
+        2. Malformed "use client" directive — missing/extra quotes.
+        3. Markdown code fences wrapping the code.
+        """
+        # ── Step 1: decode double-escaped newlines ──────────────────────────
+        # Detect: has literal \\ + n (two chars) but no real newline char.
+        BACKSLASH_N = chr(92) + chr(110)   # \ n
+        REAL_NEWLINE = chr(10)             # \n
+        if BACKSLASH_N in content and REAL_NEWLINE not in content:
+            content = (content
+                       .replace(chr(92) + chr(110), chr(10))   # \n
+                       .replace(chr(92) + chr(116), chr(9))    # \t
+                       .replace(chr(92) + chr(114), chr(13))   # \r
+                       .replace(chr(92) + chr(34),  chr(34))   # \"
+                       )
+
+        # ── Step 2: strip markdown code fences ──────────────────────────────
+        content = re.sub(r'^```[\w]*\n?', '', content.strip(), flags=re.MULTILINE)
+        content = re.sub(r'\n?```$', '', content.strip(), flags=re.MULTILINE)
+        content = content.strip()
+
+        # ── Step 3: normalise "use client" directive ─────────────────────────
+        stripped = content.lstrip()
+        leading = content[: len(content) - len(stripped)]
+
+        # Double closing quote: "use client""
+        if stripped.startswith('"use client""'):
+            content = leading + '"use client"' + stripped[13:]
+        # Missing opening quote: use client"
+        elif stripped.startswith('use client"'):
+            content = leading + '"use client"' + stripped[11:]
+        # No quotes: use client\n  or  use client (EOF)
+        elif re.match(r'use client[\r\n]', stripped) or stripped == 'use client':
+            after = stripped[len('use client'):]
+            content = leading + '"use client"' + after
+
+        return content
+
+    # Keep old names as thin wrappers for any code that calls them directly.
     def _strip_markdown_fences(self, content: str) -> str:
-        """Remove markdown code fences from content."""
         content = re.sub(r'^```[\w]*\n?', '', content.strip(), flags=re.MULTILINE)
         content = re.sub(r'\n?```$', '', content.strip(), flags=re.MULTILINE)
         return content.strip()
+
+    def _fix_use_client_directive(self, content: str) -> str:
+        return self._clean_component_code(content)
 
     def _refresh_style_reference(self):
         if not self.style_doc_path.exists():
@@ -232,7 +279,6 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
         response = await gateway.chat(
             full_messages,
             response_format={"type": "json_object"},
-            max_completion_tokens=4096,
             **kwargs,
         )
         content = response.choices[0].message.content
@@ -276,6 +322,8 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
         )
         if cached_response:
             logger.info("Using cached LLM response")
+            if cached_response.type == "component":
+                cached_response.content = self._fix_use_client_directive(cached_response.content)
             return cached_response
 
         self._refresh_style_reference()
@@ -289,9 +337,9 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
         try:
             response = await self._call_gateway(messages, system_prompt, gateway)
 
-            # Clean up code content if it has markdown code fences
+            # Normalise code content (decode newlines, strip fences, fix "use client")
             if response.type == "component":
-                response.content = self._strip_markdown_fences(response.content)
+                response.content = self._clean_component_code(response.content)
 
             # Cache the response
             await self.prompt_cache.cache_response(user_message, "general", response)

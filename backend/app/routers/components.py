@@ -107,7 +107,7 @@ async def get_component_iframe(component_id: str, request: Request):
     base_url = str(request.base_url).rstrip("/")
 
     iframe_html = f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -115,34 +115,54 @@ async def get_component_iframe(component_id: str, request: Request):
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root {{
-      --background: 0 0% 100%;
-      --foreground: 240 10% 3.9%;
-      --card: 0 0% 100%;
-      --card-foreground: 240 10% 3.9%;
-      --primary: 240 5.9% 10%;
-      --primary-foreground: 0 0% 98%;
-      --secondary: 240 4.8% 95.9%;
-      --muted: 240 4.8% 95.9%;
-      --muted-foreground: 240 3.8% 46.1%;
-      --border: 240 5.9% 90%;
-      --radius: 0.5rem;
-      --chart-1: 12 76% 61%;
-      --chart-2: 173 58% 39%;
-      --chart-3: 197 37% 24%;
-      --chart-4: 43 74% 66%;
-      --chart-5: 27 87% 67%;
-    }}
-    .dark {{
       --background: 240 10% 3.9%;
       --foreground: 0 0% 98%;
       --card: 240 10% 3.9%;
+      --card-foreground: 0 0% 98%;
+      --primary: 0 0% 98%;
+      --primary-foreground: 0 0% 9%;
+      --secondary: 0 0% 14.9%;
+      --secondary-foreground: 0 0% 98%;
+      --muted: 0 0% 14.9%;
+      --muted-foreground: 0 0% 63.9%;
+      --accent: 0 0% 14.9%;
+      --accent-foreground: 0 0% 98%;
+      --destructive: 0 62.8% 30.6%;
+      --destructive-foreground: 0 0% 98%;
+      --border: 0 0% 14.9%;
+      --input: 0 0% 14.9%;
+      --ring: 0 0% 83.1%;
+      --radius: 0.5rem;
+      --chart-1: 220 70% 50%;
+      --chart-2: 160 60% 45%;
+      --chart-3: 30 80% 55%;
+      --chart-4: 280 65% 60%;
+      --chart-5: 340 75% 55%;
     }}
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: system-ui, sans-serif; min-height: 100vh; }}
+    body {{
+      font-family: system-ui, sans-serif;
+      background-color: hsl(var(--background));
+      color: hsl(var(--foreground));
+    }}
+    .recharts-text, .recharts-cartesian-axis-tick-value,
+    .recharts-legend-item-text {{
+      fill: hsl(0 0% 63.9%) !important;
+    }}
+    .recharts-tooltip-wrapper .recharts-default-tooltip {{
+      background: hsl(240 10% 10%) !important;
+      border-color: hsl(240 5% 26%) !important;
+      color: hsl(0 0% 98%) !important;
+    }}
+    .recharts-cartesian-grid line {{
+      stroke: hsl(0 0% 14.9%) !important;
+    }}
   </style>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/recharts@2/umd/Recharts.min.js"></script>
+  <script src="https://unpkg.com/lucide-react/dist/umd/lucide-react.js"></script>
+  <script>window.LucideReact = window.LucideReact || window.lucideReact || window.lucide || {{}};</script>
   <script src="{base_url}/api/static/shadcn-ui-bundle.js"></script>
 </head>
 <body>
@@ -167,24 +187,36 @@ async def get_component_iframe(component_id: str, request: Request):
   <script>
     try {{
       var SparkComponent = window.SparkComponent;
-      if (!SparkComponent || !SparkComponent.default) {{
-        throw new Error('Component failed to load');
+      var ComponentFn = SparkComponent && (SparkComponent.default || SparkComponent);
+      if (typeof ComponentFn !== 'function') {{
+        throw new Error(
+          'Component not found. SparkComponent=' + JSON.stringify(Object.keys(SparkComponent || {{}}))
+        );
       }}
       var rootEl = document.getElementById('root');
       var root = ReactDOM.createRoot(rootEl);
-      root.render(React.createElement(SparkComponent.default));
+      root.render(React.createElement(ComponentFn));
 
       window.addEventListener('message', function(event) {{
         if (event.data && event.data.type === 'spark_data') {{
-          root.render(React.createElement(SparkComponent.default, {{ data: event.data.payload }}));
+          root.render(React.createElement(ComponentFn, {{ data: event.data.payload }}));
         }}
         if (event.data && event.data.type === 'spark_theme') {{
           document.documentElement.classList.toggle('dark', event.data.theme === 'dark');
         }}
         if (event.data && event.data.type === 'data_swap') {{
-          root.render(React.createElement(SparkComponent.default, {{ data: event.data.data }}));
+          root.render(React.createElement(ComponentFn, {{ data: event.data.data }}));
         }}
       }});
+
+      // Report content height to parent so the iframe can resize to fit
+      function reportHeight() {{
+        var h = rootEl.scrollHeight || document.body.scrollHeight || 400;
+        if (h > 0) window.parent.postMessage({{ type: 'spark_resize', height: h }}, '*');
+      }}
+      setTimeout(reportHeight, 50);
+      setTimeout(reportHeight, 300);
+      new ResizeObserver(reportHeight).observe(rootEl);
     }} catch (error) {{
       console.error('Failed to render:', error);
       document.getElementById('root').innerHTML = '<div style="padding: 20px; color: red;">' + error.message + '</div>';

@@ -92,10 +92,15 @@ class CodeValidator:
             return True, []
         except Exception as e:
             error_msg = str(e)
-            # Be more lenient with parsing errors for modern syntax
-            if any(keyword in error_msg.lower() for keyword in ['unexpected token', 'unexpected identifier']):
-                logger.warning(f"Syntax parsing warning (may be modern syntax): {error_msg}")
-                # Let it pass - compilation will catch real errors
+            # Be more lenient with parsing errors for modern/TypeScript syntax
+            # esprima is JS-only; "interface", "implements" etc. are TS keywords it flags as reserved
+            lenient_keywords = [
+                'unexpected token', 'unexpected identifier',
+                'future reserved word',  # interface, implements, etc. (valid in TypeScript)
+            ]
+            if any(keyword in error_msg.lower() for keyword in lenient_keywords):
+                logger.warning(f"Syntax parsing warning (may be TypeScript/modern syntax): {error_msg}")
+                # Let it pass - esbuild compilation will catch real errors
                 return True, []
             return False, [f"Syntax error: {error_msg}"]
 

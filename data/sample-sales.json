@@ -1,0 +1,84 @@
+{
+  "_description": "Sample sales dataset for Spark Data Bridge demos. POST to /api/components/{id}/data/swap with mode=real to inject.",
+  "summary": {
+    "total_revenue": 847320,
+    "total_orders": 4312,
+    "avg_order_value": 196.5,
+    "active_customers": 1842,
+    "growth_rate": 18.4,
+    "mrr": 70610,
+    "arr": 847320
+  },
+  "monthly_revenue": [
+    { "date": "2024-01", "value": 52400, "orders": 267, "customers": 214 },
+    { "date": "2024-02", "value": 58900, "orders": 301, "customers": 244 },
+    { "date": "2024-03", "value": 61200, "orders": 318, "customers": 258 },
+    { "date": "2024-04", "value": 67800, "orders": 345, "customers": 283 },
+    { "date": "2024-05", "value": 71500, "orders": 362, "customers": 299 },
+    { "date": "2024-06", "value": 74200, "orders": 379, "customers": 312 },
+    { "date": "2024-07", "value": 69800, "orders": 358, "customers": 295 },
+    { "date": "2024-08", "value": 78300, "orders": 401, "customers": 331 },
+    { "date": "2024-09", "value": 82100, "orders": 420, "customers": 347 },
+    { "date": "2024-10", "value": 85600, "orders": 437, "customers": 362 },
+    { "date": "2024-11", "value": 91200, "orders": 467, "customers": 387 },
+    { "date": "2024-12", "value": 54320, "orders": 257, "customers": 210 }
+  ],
+  "products": [
+    { "name": "Laptop Pro 15", "category": "Electronics", "revenue": 142500, "units": 95, "price": 1499.99, "stock": 42, "rating": 4.7 },
+    { "name": "Wireless Headphones", "category": "Electronics", "revenue": 87200, "units": 436, "price": 199.99, "stock": 128, "rating": 4.5 },
+    { "name": "Standing Desk", "category": "Furniture", "revenue": 79600, "units": 199, "price": 399.99, "stock": 67, "rating": 4.6 },
+    { "name": "Ergonomic Chair", "category": "Furniture", "revenue": 68900, "units": 172, "price": 399.99, "stock": 54, "rating": 4.8 },
+    { "name": "Mechanical Keyboard", "category": "Electronics", "revenue": 52400, "units": 524, "price": 99.99, "stock": 215, "rating": 4.4 },
+    { "name": "4K Monitor", "category": "Electronics", "revenue": 48600, "units": 81, "price": 599.99, "stock": 33, "rating": 4.6 },
+    { "name": "Running Shoes", "category": "Sports", "revenue": 44800, "units": 448, "price": 99.99, "stock": 189, "rating": 4.3 },
+    { "name": "Yoga Mat", "category": "Sports", "revenue": 22300, "units": 743, "price": 29.99, "stock": 402, "rating": 4.5 },
+    { "name": "Coffee Maker", "category": "Kitchen", "revenue": 38700, "units": 258, "price": 149.99, "stock": 97, "rating": 4.4 },
+    { "name": "Blender Pro", "category": "Kitchen", "revenue": 29800, "units": 298, "price": 99.99, "stock": 134, "rating": 4.2 }
+  ],
+  "categories": [
+    { "name": "Electronics", "value": 330700, "orders": 1136, "growth": 22.1 },
+    { "name": "Furniture", "value": 148500, "orders": 371, "growth": 14.8 },
+    { "name": "Sports", "value": 67100, "orders": 1191, "growth": 31.2 },
+    { "name": "Kitchen", "value": 68500, "orders": 556, "growth": 9.7 },
+    { "name": "Other", "value": 232520, "orders": 1058, "growth": 17.3 }
+  ],
+  "regions": [
+    { "name": "North", "revenue": 218400, "orders": 1114, "customers": 487, "growth": 21.3 },
+    { "name": "South", "revenue": 187600, "orders": 956, "customers": 418, "growth": 15.7 },
+    { "name": "East", "revenue": 231900, "orders": 1182, "customers": 517, "growth": 19.8 },
+    { "name": "West", "revenue": 209420, "orders": 1060, "customers": 420, "growth": 16.2 }
+  ],
+  "top_customers": [
+    { "id": "C-0042", "name": "Acme Corp", "revenue": 18450, "orders": 34, "since": "2023-01" },
+    { "id": "C-0118", "name": "Globex Ltd", "revenue": 15200, "orders": 28, "since": "2023-03" },
+    { "id": "C-0073", "name": "Initech Inc", "revenue": 12900, "orders": 24, "since": "2022-11" },
+    { "id": "C-0201", "name": "Umbrella Co", "revenue": 11400, "orders": 21, "since": "2023-06" },
+    { "id": "C-0055", "name": "Stark Industries", "revenue": 10800, "orders": 20, "since": "2023-02" }
+  ],
+  "metrics": [
+    { "date": "2024-01", "value": 52400, "lineValue": 52400, "barValue": 267 },
+    { "date": "2024-02", "value": 58900, "lineValue": 58900, "barValue": 301 },
+    { "date": "2024-03", "value": 61200, "lineValue": 61200, "barValue": 318 },
+    { "date": "2024-04", "value": 67800, "lineValue": 67800, "barValue": 345 },
+    { "date": "2024-05", "value": 71500, "lineValue": 71500, "barValue": 362 },
+    { "date": "2024-06", "value": 74200, "lineValue": 74200, "barValue": 379 },
+    { "date": "2024-07", "value": 69800, "lineValue": 69800, "barValue": 358 },
+    { "date": "2024-08", "value": 78300, "lineValue": 78300, "barValue": 401 },
+    { "date": "2024-09", "value": 82100, "lineValue": 82100, "barValue": 420 },
+    { "date": "2024-10", "value": 85600, "lineValue": 85600, "barValue": 437 },
+    { "date": "2024-11", "value": 91200, "lineValue": 91200, "barValue": 467 },
+    { "date": "2024-12", "value": 54320, "lineValue": 54320, "barValue": 257 }
+  ],
+  "data": [
+    { "name": "Laptop Pro 15", "category": "Electronics", "price": 1499, "stock": 42, "rating": 4.7 },
+    { "name": "Wireless Headphones", "category": "Electronics", "price": 199, "stock": 128, "rating": 4.5 },
+    { "name": "Standing Desk", "category": "Furniture", "price": 399, "stock": 67, "rating": 4.6 },
+    { "name": "Ergonomic Chair", "category": "Furniture", "price": 399, "stock": 54, "rating": 4.8 },
+    { "name": "Mechanical Keyboard", "category": "Electronics", "price": 99, "stock": 215, "rating": 4.4 },
+    { "name": "4K Monitor", "category": "Electronics", "price": 599, "stock": 33, "rating": 4.6 },
+    { "name": "Running Shoes", "category": "Sports", "price": 99, "stock": 189, "rating": 4.3 },
+    { "name": "Yoga Mat", "category": "Sports", "price": 29, "stock": 402, "rating": 4.5 },
+    { "name": "Coffee Maker", "category": "Kitchen", "price": 149, "stock": 97, "rating": 4.4 },
+    { "name": "Blender Pro", "category": "Kitchen", "price": 99, "stock": 134, "rating": 4.2 }
+  ]
+}

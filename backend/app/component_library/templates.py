@@ -113,6 +113,7 @@ const sampleData = [
 
 export default function DataTable({ data = sampleData, title = "{{TABLE_TITLE}}" }: Props) {
   const [filter, setFilter] = useState("")
+  const columns = data.length > 0 ? Object.keys(data[0]) : []
   const filtered = useMemo(() => {
     if (!filter) return data
     const f = filter.toLowerCase()
@@ -136,19 +137,27 @@ export default function DataTable({ data = sampleData, title = "{{TABLE_TITLE}}"
         <Table>
           <TableHeader>
             <TableRow>
-              {{TABLE_HEADERS}}
+              {columns.map((col) => (
+                <TableHead key={col} className="capitalize">
+                  {col.replace(/_/g, " ")}
+                </TableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.map((item, i) => (
               <TableRow key={i}>
-                {{TABLE_CELLS}}
+                {columns.map((col) => (
+                  <TableCell key={col}>
+                    {String((item as Record<string, unknown>)[col] ?? "")}
+                  </TableCell>
+                ))}
               </TableRow>
             ))}
           </TableBody>
         </Table>
         <p className="text-sm text-muted-foreground mt-4">
-          Showing {filtered.length} items
+          Showing {filtered.length} of {data.length} items
         </p>
       </CardContent>
     </Card>

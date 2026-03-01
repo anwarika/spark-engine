@@ -1,75 +1,99 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import api from '../services/api';
 
 interface MicroappIframeProps {
     componentId: string;
     onFeedback?: (rating: 1 | 5) => void;
 }
 
+const MIN_HEIGHT = 200;
+const MAX_HEIGHT = 800;
+const DEFAULT_HEIGHT = 360;
+
 export const MicroappIframe: React.FC<MicroappIframeProps> = ({
     componentId,
-    onFeedback
+    onFeedback: _onFeedback,
 }) => {
-    const iframeUrl = `/api/components/${componentId}/iframe`;
-    const sandbox = 'allow-scripts allow-same-origin';
     const iframeRef = useRef<HTMLIFrameElement>(null);
-
-    const [iframeHeight, setIframeHeight] = useState(600);
+    const [iframeHeight, setIframeHeight] = useState(DEFAULT_HEIGHT);
     const [dataMode, setDataMode] = useState<'sample' | 'real'>('sample');
+    const [isLoadingData, setIsLoadingData] = useState(false);
 
+    // Fetch mock data from the component data endpoint and inject into the iframe.
+    const injectData = useCallback(async (mode: 'sample' | 'real') => {
+        setIsLoadingData(true);
+        try {
+            const response = await api.post(`/components/${componentId}/data`, { data_mode: mode });
+            iframeRef.current?.contentWindow?.postMessage(
+                { type: 'spark_data', payload: response.data },
+                '*'
+            );
+        } catch {
+            // Silently ignore — component falls back to its own sample data
+        } finally {
+            setIsLoadingData(false);
+        }
+    }, [componentId]);
+
+    // After iframe loads: send theme + inject sample mock data
     useEffect(() => {
-        const calculateReserved = () => {
-            const header = document.querySelector('.chat-container .flex-none:first-child');
-            const footer = document.querySelector('.chat-container > div:last-child');
-            const padding = 32;
-            const headerHeight = header ? header.getBoundingClientRect().height : 0;
-            const footerHeight = footer ? footer.getBoundingClientRect().height : 0;
-            return headerHeight + footerHeight + padding;
+        const iframe = iframeRef.current;
+        if (!iframe) return;
+        const onLoad = () => {
+            // Theme
+            const isDark = document.documentElement.classList.contains('dark');
+            iframe.contentWindow?.postMessage({ type: 'spark_theme', theme: isDark ? 'dark' : 'light' }, '*');
+            // Inject mock data (non-blocking)
+            injectData(dataMode);
         };
+        iframe.addEventListener('load', onLoad);
+        return () => iframe.removeEventListener('load', onLoad);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [componentId]);
 
-        const updateHeight = () => {
-            const reservedSpace = calculateReserved();
-            const viewportHeight = window.innerHeight;
-            const calculatedHeight = Math.min(Math.max(viewportHeight - reservedSpace, 360), 1000);
-            setIframeHeight(calculatedHeight);
+    // Resize listener
+    useEffect(() => {
+        const onMessage = (event: MessageEvent) => {
+            if (event.data?.type === 'spark_resize' && typeof event.data.height === 'number') {
+                const h = Math.min(Math.max(event.data.height + 16, MIN_HEIGHT), MAX_HEIGHT);
+                setIframeHeight(h);
+            }
         };
-
-        updateHeight();
-        window.addEventListener('resize', updateHeight);
-        return () => window.removeEventListener('resize', updateHeight);
+        window.addEventListener('message', onMessage);
+        return () => window.removeEventListener('message', onMessage);
     }, []);
 
-    const handleDataModeChange = (mode: 'sample' | 'real') => {
+    const handleDataModeChange = async (mode: 'sample' | 'real') => {
         setDataMode(mode);
-        iframeRef.current?.contentWindow?.postMessage(
-            { type: 'data_swap', mode },
-            '*'  // Same-origin in production; allows dev with different ports
-        );
+        await injectData(mode);
     };
 
     return (
-        <Card>
-            <CardContent className="p-2">
-                <div className="flex justify-between items-center mb-2 gap-2">
-                    <Badge variant="outline">
-                        Data: {dataMode === 'sample' ? 'Sample' : 'Real'}
+        <Card className="overflow-hidden">
+            <CardContent className="p-0">
+                <div className="flex items-center gap-2 px-3 py-2 border-b bg-muted/30">
+                    <Badge variant="outline" className="text-xs">
+                        {isLoadingData ? 'Loading…' : dataMode === 'sample' ? 'Sample data' : 'Real data'}
                     </Badge>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 ml-auto">
                         <Button
-                            variant={dataMode === 'sample' ? 'default' : 'outline'}
+                            variant={dataMode === 'sample' ? 'secondary' : 'ghost'}
                             size="sm"
+                            className="h-6 px-2 text-xs"
                             onClick={() => handleDataModeChange('sample')}
-                            title="Use sample/mock data"
+                            disabled={isLoadingData}
                         >
                             Sample
                         </Button>
                         <Button
-                            variant={dataMode === 'real' ? 'default' : 'outline'}
+                            variant={dataMode === 'real' ? 'secondary' : 'ghost'}
                             size="sm"
+                            className="h-6 px-2 text-xs"
                             onClick={() => handleDataModeChange('real')}
-                            title="Use real data (inject via POST /api/components/{id}/data)"
+                            disabled={isLoadingData}
                         >
                             Real
                         </Button>
@@ -77,36 +101,13 @@ export const MicroappIframe: React.FC<MicroappIframeProps> = ({
                 </div>
                 <iframe
                     ref={iframeRef}
-                    src={iframeUrl}
+                    src={`/api/components/${componentId}/iframe`}
                     style={{ height: `${iframeHeight}px` }}
-                    className="w-full rounded-lg border-0 min-h-[360px]"
-                    sandbox={sandbox}
+                    className="w-full border-0"
+                    sandbox="allow-scripts allow-same-origin"
                     title={`Component ${componentId}`}
-                    onError={(e) => console.error('Iframe error:', e)}
                 />
-                {onFeedback && (
-                    <div className="flex justify-end gap-1 mt-2">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onFeedback(1)}
-                            title="Thumbs down"
-                        >
-                            👎
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onFeedback(5)}
-                            title="Thumbs up"
-                        >
-                            👍
-                        </Button>
-                    </div>
-                )}
             </CardContent>
         </Card>
     );
 };
-
-

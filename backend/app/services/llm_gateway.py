@@ -127,7 +127,7 @@ class LLMGateway:
             **{
                 k: v
                 for k, v in kwargs.items()
-                if k not in ("model", "temperature", "max_tokens")
+                if k not in ("model", "temperature", "max_tokens", "max_completion_tokens")
             },
         )
         return response
@@ -142,7 +142,7 @@ class LLMGateway:
             **{
                 k: v
                 for k, v in kwargs.items()
-                if k not in ("model", "temperature", "max_tokens")
+                if k not in ("model", "temperature", "max_tokens", "max_completion_tokens")
             },
         )
         async for chunk in response:

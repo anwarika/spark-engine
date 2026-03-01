@@ -15,6 +15,7 @@ interface ChatState {
   isLoading: boolean;
   error: string | null;
   generation: GenerationProgress | null;
+  pendingPrompt: string | null;
   addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => string;
   updateMessage: (id: string, patch: Partial<Omit<Message, 'id' | 'timestamp'>>) => void;
   setLoading: (loading: boolean) => void;
@@ -23,6 +24,7 @@ interface ChatState {
   updateGenerationStep: (step: string, status: ProgressStatus, ms?: number) => void;
   clearGeneration: () => void;
   clearMessages: () => void;
+  setPendingPrompt: (prompt: string | null) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -31,6 +33,7 @@ export const useChatStore = create<ChatState>((set) => ({
   isLoading: false,
   error: null,
   generation: null,
+  pendingPrompt: null,
   addMessage: (message) => {
     const id = uuidv4();
     set((state) => ({
@@ -84,5 +87,6 @@ export const useChatStore = create<ChatState>((set) => ({
       };
     }),
   clearGeneration: () => set({ generation: null }),
-  clearMessages: () => set({ messages: [], sessionId: uuidv4(), generation: null })
+  clearMessages: () => set({ messages: [], sessionId: uuidv4(), generation: null, pendingPrompt: null }),
+  setPendingPrompt: (prompt) => set({ pendingPrompt: prompt })
 }));
