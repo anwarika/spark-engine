@@ -1,4 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { Card, CardContent } from './ui/card';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 
 interface MicroappIframeProps {
     componentId: string;
@@ -47,27 +50,29 @@ export const MicroappIframe: React.FC<MicroappIframeProps> = ({
     };
 
     return (
-        <div className="card bg-base-200 shadow-xl">
-            <div className="card-body p-2">
+        <Card>
+            <CardContent className="p-2">
                 <div className="flex justify-between items-center mb-2 gap-2">
-                    <span className="badge badge-sm badge-outline">
+                    <Badge variant="outline">
                         Data: {dataMode === 'sample' ? 'Sample' : 'Real'}
-                    </span>
-                    <div className="join">
-                        <button
-                            className={`btn btn-xs join-item ${dataMode === 'sample' ? 'btn-active' : ''}`}
+                    </Badge>
+                    <div className="flex gap-1">
+                        <Button
+                            variant={dataMode === 'sample' ? 'default' : 'outline'}
+                            size="sm"
                             onClick={() => handleDataModeChange('sample')}
                             title="Use sample/mock data"
                         >
                             Sample
-                        </button>
-                        <button
-                            className={`btn btn-xs join-item ${dataMode === 'real' ? 'btn-active' : ''}`}
+                        </Button>
+                        <Button
+                            variant={dataMode === 'real' ? 'default' : 'outline'}
+                            size="sm"
                             onClick={() => handleDataModeChange('real')}
-                            title="Use real data (requires POST to /data/swap first)"
+                            title="Use real data (inject via POST /api/components/{id}/data)"
                         >
                             Real
-                        </button>
+                        </Button>
                     </div>
                 </div>
                 <iframe
@@ -80,25 +85,27 @@ export const MicroappIframe: React.FC<MicroappIframeProps> = ({
                     onError={(e) => console.error('Iframe error:', e)}
                 />
                 {onFeedback && (
-                    <div className="card-actions justify-end mt-2">
-                        <button
-                            className="btn btn-sm btn-ghost"
+                    <div className="flex justify-end gap-1 mt-2">
+                        <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => onFeedback(1)}
                             title="Thumbs down"
                         >
                             👎
-                        </button>
-                        <button
-                            className="btn btn-sm btn-ghost"
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => onFeedback(5)}
                             title="Thumbs up"
                         >
                             👍
-                        </button>
+                        </Button>
                     </div>
                 )}
-            </div>
-        </div>
+            </CardContent>
+        </Card>
     );
 };
 

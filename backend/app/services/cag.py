@@ -89,8 +89,9 @@ class CAGService:
         """
         normalized_prompt = CAGService.normalize_prompt(prompt)
         
-        # Build canonical string for hashing
+        # Build canonical string for hashing (include "react" for v3 - different from Solid.js)
         parts = [
+            "engine:react",
             f"prompt:{normalized_prompt}",
             f"template:{template_name or 'auto'}",
             f"profile:{data_profile}",

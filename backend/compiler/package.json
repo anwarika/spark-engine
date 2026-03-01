@@ -1,0 +1,12 @@
+{
+  "name": "spark-compiler",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "esbuild": "^0.24.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^2.10.0",
+    "lucide-react": "^0.400.0"
+  }
+}

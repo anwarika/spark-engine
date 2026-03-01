@@ -1,8 +1,15 @@
+"""
+DEPRECATED: Use app.services.llm_gateway.LLMGateway instead.
+
+This module is kept for reference. LLMService now uses LLMGateway with
+configurable OpenAI-compatible providers (openai, openrouter, litellm, llmgw, custom).
+"""
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from app.models import ChatResponse
 import os
 import json
+
 
 class BaseLLMProvider(ABC):
     @abstractmethod

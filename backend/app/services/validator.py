@@ -18,8 +18,11 @@ class CodeValidator:
     ]
 
     ALLOWED_IMPORTS = [
-        "solid-js", "solid-js/web", "solid-js/store",
-        "apexcharts"
+        "react",
+        "react-dom",
+        "recharts",
+        "@/components/ui",
+        "lucide-react",
     ]
 
     FORBIDDEN_PATTERNS = [
@@ -60,7 +63,7 @@ class CodeValidator:
         invalid_imports = self._check_imports(code)
         if invalid_imports:
             errors.extend([
-                f"Invalid import detected: {imp}. Only {', '.join(self.ALLOWED_IMPORTS)} are allowed"
+                f"Invalid import detected: {imp}. Allowed: react, react-dom, recharts, @/components/ui/*, lucide-react"
                 for imp in invalid_imports
             ])
 

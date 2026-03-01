@@ -16,15 +16,25 @@ class Settings(BaseSettings):
     
     redis_url: str = "redis://localhost:6379"
     
-    # LLM Settings
-    llm_provider: str = "openai"  # openai, anthropic, openrouter
-    
+    # LLM Gateway Configuration (v3)
+    llm_provider: str = "openai"  # openai | openrouter | litellm | llmgw | custom
+    llm_model: str = "gpt-4o-mini"
+    llm_api_key: Optional[str] = None
+    llm_base_url: Optional[str] = None
+    llm_temperature: float = 0.7
+    llm_max_tokens: int = 4096
+    llm_fallback_provider: Optional[str] = None
+    llm_fallback_model: Optional[str] = None
+    llm_fallback_api_key: Optional[str] = None
+    llm_fallback_base_url: Optional[str] = None
+    openrouter_site_url: Optional[str] = None
+    openrouter_app_name: str = "spark-engine"
+
+    # Legacy LLM Settings (used if llm_api_key not set)
     openai_api_key: Optional[str] = None
     openai_model: str = "o3-mini"
-    
     anthropic_api_key: Optional[str] = None
     anthropic_model: str = "claude-3-opus-20240229"
-    
     openrouter_api_key: Optional[str] = None
     openrouter_model: str = "openai/gpt-4o"
     

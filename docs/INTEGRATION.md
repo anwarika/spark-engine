@@ -100,6 +100,12 @@ const tools = {
       {"month": "Nov", "value": 150},
       {"month": "Dec", "value": 200}
     ]
+  },
+  "template_hint": "MetricsDashboard",
+  "theme": "light",
+  "llm_config": {
+    "provider": "openai",
+    "model": "gpt-4o-mini"
   }
 }
 ```
@@ -108,8 +114,17 @@ const tools = {
 ```json
 {
   "status": "success",
-  "microapp_url": "https://spark.domain/api/components/123/iframe",
-  "component_id": "123"
+  "component_id": "123",
+  "microapp_url": "https://spark.domain/api/components/123",
+  "render_url": "https://spark.domain/api/components/123/render",
+  "iframe_url": "https://spark.domain/api/components/123/iframe",
+  "embed_html": "<iframe src=\"...\" ...></iframe>",
+  "metadata": {
+    "template_used": "MetricsDashboard",
+    "compile_time_ms": 120,
+    "bundle_size_bytes": 4500,
+    "cache_hit": false
+  }
 }
 ```
 

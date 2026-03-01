@@ -5,6 +5,76 @@ All notable changes to Spark will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-02-28
+
+### ⚠️ BREAKING CHANGES
+
+- **Generated apps**: Solid.js + ApexCharts → React + shadcn/ui + Recharts
+- **LLM**: llm_providers.py deprecated; use LLMGateway (llm_gateway.py)
+- **Chat UI**: DaisyUI → shadcn/ui
+- **Data Bridge**: createResource/window.__DATA_MODE → postMessage `spark_data` with `data` prop
+- **Cache**: CAG keys now include `engine:react`; Solid.js outputs are not reused
+
+### Added
+
+- **LLM Gateway**: Pluggable provider abstraction
+  - Supports: openai, openrouter, litellm, llmgw, custom
+  - Single config: LLM_PROVIDER, LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
+  - Fallback provider support
+  - Per-request override via A2A `llm_config`
+- **React + shadcn/ui**: Generated components use React 18, shadcn, Recharts, Lucide
+- **9 React templates**: StatCard, DataTable, LineChart, BarChart, PieChart, AreaChart, ComposedChart, ListWithSearch, MetricsDashboard
+- **shadcn-ui-bundle.js**: Minimal shadcn stub for iframe component rendering
+- **A2A API extensions**: template_hint, theme, llm_config; response: render_url, iframe_url, embed_html, metadata
+- **docs/LLM_GATEWAY.md**: LLM configuration guide
+- **docs/MIGRATION_V3.md**: v2.x → v3.0 migration guide
+
+### Changed
+
+- Compiler uses esbuild with React JSX; externals for react, react-dom, recharts, @/components/ui/*, lucide-react
+- Validator allowlist updated for React imports; forbidden: window, document, fetch, eval, etc.
+- Iframe HTML: React/Recharts CDN, shadcn bundle, spark_data/spark_theme postMessage handlers
+- Frontend: App, ChatWindow, MessageBubble, ComponentsView, MicroappIframe use shadcn
+- Docker: compiler npm deps instead of global solid-js
+
+### Fixed
+
+- CAG hash includes engine identifier for React vs Solid.js cache separation
+
+## [Unreleased]
+
+### Added
+
+- **Content-Addressable Generation (CAG)**: Intelligent component deduplication system
+  - Automatically detects when users request similar/identical components
+  - Returns existing components instantly without LLM regeneration (~1500ms saved)
+  - Saves $0.001-0.003 per CAG hit by avoiding LLM API calls
+  - Content hashing based on normalized prompt + template + data profile
+  - `GET /api/components/search?content_hash=...` endpoint for CAG lookups
+  - `GET /api/cag/metrics` endpoint for monitoring hit rates and performance
+  - Reuse count tracking in `generation_metadata` field
+  - Database migration adds: `content_hash`, `prompt_normalized`, `generation_metadata` columns
+
+- **CAG Documentation**: Comprehensive guide at `docs/CAG.md` with:
+  - Architecture diagrams
+  - Normalization rules and synonym groups
+  - Performance benchmarks
+  - Debugging guides
+  - Best practices
+
+### Changed
+
+- **Chat endpoints** now check for existing components before LLM generation
+- **Component creation** now stores content fingerprints for future CAG lookups
+- **Metrics logging** enhanced with CAG hit/miss events and timing breakdown
+- **Cache strategy** labels updated to reflect CAG status (e.g., `cag_miss_llm_generated`)
+
+### Performance
+
+- **CAG HIT response time**: ~85ms (vs ~2500ms for fresh generation)
+- **CAG lookup overhead**: +10-20ms when no match found (negligible)
+- **Hit rate**: Varies by usage patterns (typically 20-40% in multi-user environments)
+
 ## [2.0.0] - 2026-02-10
 
 ### ⚠️ BREAKING CHANGES
@@ -74,48 +144,18 @@ This release replaces Chart.js with ApexCharts and introduces the Data Bridge pa
 - **Chart.js**: Removed from all templates, iframe HTML, and compiler externals
 - **Chart.js Primitives**: Removed old `CHART_LINE_CONFIG`, `CHART_BAR_CONFIG`, `CHART_PIE_CONFIG` (replaced with ApexCharts equivalents)
 
-### Migration Guide
+### Fixed
 
-See [docs/MIGRATION_V2.md](docs/MIGRATION_V2.md) for detailed upgrade instructions.
+- **Numeric precision**: Mock data generator now properly rounds all numeric values to 2 decimal places (currency) or 4 decimal places (rates/percentages)
+- **Python f-string escaping**: Fixed JavaScript literal braces within iframe HTML f-strings
 
-**Quick Migration:**
+### Documentation
 
-1. **No action needed** if using the chat interface - new components will use ApexCharts automatically
-2. **Regenerate existing components** if you want ApexCharts styling
-3. **Update custom code** that imports `chart.js` to use `apexcharts` instead
-
-**Data Bridge Usage:**
-
-```javascript
-// Store real data (from your backend/API)
-await fetch('/api/components/{id}/data/swap', {
-  method: 'POST',
-  body: JSON.stringify({ 
-    mode: 'real', 
-    data: { revenue: [...], metrics: [...] } 
-  })
-});
-
-// Trigger swap (via UI toggle or programmatically)
-iframeWindow.postMessage({ type: 'data_swap', mode: 'real' }, '*');
-```
-
-### Technical Details
-
-**Bundle Sizes:**
-- ApexCharts CDN: ~45KB gzipped (cached by browser)
-- Template bundles: 10-15KB (unchanged from v1.x)
-- Total overhead: +45KB on first load, 0KB on subsequent loads
-
-**API Compatibility:**
-- All v1.x endpoints remain functional
-- New `/data/swap` endpoint is additive
-- `/data` endpoint accepts optional `data_mode` parameter (backward compatible)
-
-**Performance:**
-- Chart render time: <300ms (improved from Chart.js's ~400ms)
-- Data swap latency: <100ms
-- Total time to interactive: maintained at <2s
+- Added `docs/MIGRATION_V2.md` - Comprehensive upgrade guide from v1.x
+- Added `docs/DATA_BRIDGE.md` - Technical deep-dive on data bridge pattern
+- Added `CHANGELOG.md` - Following Keep a Changelog format
+- Added GitHub issue/PR templates (`.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`)
+- Updated README with version badges, documentation links, and expanded contributing section
 
 ## [1.0.0] - 2025-11-23
 

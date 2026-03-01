@@ -104,198 +104,90 @@ async def get_component_iframe(component_id: str, request: Request):
     
     component_created_timestamp = request_start_timestamp
 
+    base_url = str(request.base_url).rstrip("/")
+
     iframe_html = f"""<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://esm.sh https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.tailwindcss.com; connect-src 'self'; img-src 'self' data: https:; font-src 'self' https://cdn.jsdelivr.net;">
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spark Component</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <title>Micro App</title>
   <style>
-    body {{ margin: 0; padding: 0; }}
-    #app {{ min-height: 100vh; }}
+    :root {{
+      --background: 0 0% 100%;
+      --foreground: 240 10% 3.9%;
+      --card: 0 0% 100%;
+      --card-foreground: 240 10% 3.9%;
+      --primary: 240 5.9% 10%;
+      --primary-foreground: 0 0% 98%;
+      --secondary: 240 4.8% 95.9%;
+      --muted: 240 4.8% 95.9%;
+      --muted-foreground: 240 3.8% 46.1%;
+      --border: 240 5.9% 90%;
+      --radius: 0.5rem;
+      --chart-1: 12 76% 61%;
+      --chart-2: 173 58% 39%;
+      --chart-3: 197 37% 24%;
+      --chart-4: 43 74% 66%;
+      --chart-5: 27 87% 67%;
+    }}
+    .dark {{
+      --background: 240 10% 3.9%;
+      --foreground: 0 0% 98%;
+      --card: 240 10% 3.9%;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: system-ui, sans-serif; min-height: 100vh; }}
   </style>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/recharts@2/umd/Recharts.min.js"></script>
+  <script src="{base_url}/api/static/shadcn-ui-bundle.js"></script>
 </head>
 <body>
-  <div id="app"></div>
-  <script type="importmap">
-  {{
-    "imports": {{
-      "solid-js": "https://esm.sh/solid-js@1.8.7",
-      "solid-js/web": "https://esm.sh/solid-js@1.8.7/web",
-      "solid-js/store": "https://esm.sh/solid-js@1.8.7/store",
-      "apexcharts": "https://cdn.jsdelivr.net/npm/apexcharts@3.54.1/dist/apexcharts.esm.js"
-    }}
-  }}
-  </script>
+  <div id="root"></div>
   <script>
-    // Global error handler
-    window.onerror = function(msg, url, line, col, error) {{
-      console.error('Error:', msg, 'at', url, line, col, error);
-      const app = document.getElementById('app');
-      if (app) {{
-        app.innerHTML = '<div style="padding: 20px; color: red;">Error: ' + msg + '</div>';
-      }}
-      return false;
-    }};
-    
-    // Unhandled promise rejection handler
-    window.addEventListener('unhandledrejection', function(event) {{
-      console.error('Unhandled promise rejection:', event.reason);
-      const app = document.getElementById('app');
-      if (app) {{
-        app.innerHTML = '<div style="padding: 20px; color: red;">Promise Error: ' + event.reason + '</div>';
-      }}
-    }});
-    
-    // Component environment
-    window.__COMPONENT_TOKEN = 'placeholder-token';
     window.__COMPONENT_ID = '{component_id}';
     window.__TENANT_ID = '{tenant_id}';
     window.__USER_ID = '{user_id}';
-    window.__API_BASE = window.location.origin;
-    window.__COMPONENT_CREATED_AT = {component_created_timestamp if component_created_timestamp else 'null'};
     window.__DATA_MODE = 'sample';
 
-    // Helper to send events to parent
-    window.sendToParent = (type, payload) => {{
-        if (window.parent && window.parent !== window) {{
-            window.parent.postMessage({{
-                type: type,
-                payload: payload,
-                componentId: window.__COMPONENT_ID
-            }}, '*');
-        }}
+    window.onerror = function(msg, url, line, col, error) {{
+      console.error('Error:', msg, 'at', url, line, col, error);
+      var root = document.getElementById('root');
+      if (root) root.innerHTML = '<div style="padding: 20px; color: red;">Error: ' + msg + '</div>';
+      return false;
     }};
-    
-    console.log('Component environment initialized:', {{
-      componentId: window.__COMPONENT_ID,
-      tenantId: window.__TENANT_ID,
-      userId: window.__USER_ID,
-      apiBase: window.__API_BASE
+    window.addEventListener('unhandledrejection', function(e) {{
+      console.error('Unhandled rejection:', e.reason);
     }});
   </script>
-  <script type="module">
-    // Performance timing - mark when iframe starts loading
-    if (window.performance && window.performance.mark) {{
-      performance.mark('component-iframe-start');
-    }}
-    
-    // Import SolidJS and Data Bridge setup
-    import {{ render }} from 'solid-js/web';
-    import {{ createContext, createSignal }} from 'solid-js';
-    
-    // Data Bridge: context for sample/real data swap
-    const DataContext = createContext({{ data: null, mode: 'sample' }});
-    const [bridgeData, setBridgeData] = createSignal(null);
-    const [bridgeMode, setBridgeMode] = createSignal('sample');
-    
-    window.__SET_DATA_BRIDGE = function(mode, data) {{
-      setBridgeMode(mode || 'sample');
-      setBridgeData(data || null);
-    }};
-    window.DataContext = DataContext;
-    
-    // PostMessage handler for data swap - also updates __DATA_MODE for template refetch
-    window.addEventListener('message', function(event) {{
-      if (event.data && event.data.type === 'data_swap') {{
-        window.__SET_DATA_BRIDGE(event.data.mode || 'real', event.data.data);
-        window.__DATA_MODE = event.data.mode || 'real';
-      }}
-    }});
-    
+  <script src="{base_url}/api/components/{component_id}/artifact"></script>
+  <script>
     try {{
-      // Dynamically import the component artifact (ESM module)
-      const componentModule = await import('/api/components/{component_id}/artifact');
-      
-      if (window.performance && window.performance.mark) {{
-        performance.mark('component-artifact-loaded');
+      var SparkComponent = window.SparkComponent;
+      if (!SparkComponent || !SparkComponent.default) {{
+        throw new Error('Component failed to load');
       }}
-      
-      console.log('Component module loaded:', componentModule);
-      
-      // Get the default export (the component function)
-      const componentFunc = componentModule.default;
-      
-      if (!componentFunc) {{
-        throw new Error('No default export found in component module');
-      }}
-      
-      if (window.performance && window.performance.mark) {{
-        performance.mark('component-render-ready');
-      }}
-      
-      const root = document.getElementById('app');
-      
-      // Mark render start
-      if (window.performance && window.performance.mark) {{
-        performance.mark('component-render-start');
-      }}
-      
-      // Render the component wrapped in DataProvider (Data Bridge context)
-      const Provider = DataContext.Provider;
-      render(function() {{
-        return Provider({{
-          value: {{ data: bridgeData, mode: bridgeMode }},
-          get children() {{ return componentFunc ? componentFunc() : null; }}
-        }});
-      }}, root);
-      
-      // Mark render complete
-      if (window.performance && window.performance.mark) {{
-        performance.mark('component-render-complete');
-        
-        // Measure timing
-        try {{
-          performance.measure('component-artifact-load', 'component-iframe-start', 'component-artifact-loaded');
-          performance.measure('component-render-setup', 'component-artifact-loaded', 'component-render-ready');
-          performance.measure('component-render-exec', 'component-render-ready', 'component-render-complete');
-          performance.measure('component-total-render', 'component-iframe-start', 'component-render-complete');
-          
-          // Log render metrics
-          const measures = performance.getEntriesByType('measure');
-          const renderMetrics = {{
-            component_id: window.__COMPONENT_ID,
-            timing: {{}}
-          }};
-          
-          measures.forEach(measure => {{
-            if (measure.name.startsWith('component-')) {{
-              renderMetrics.timing[measure.name] = Math.round(measure.duration * 100) / 100;
-            }}
-          }});
-          
-          // Calculate total time from request to render
-          if (window.__COMPONENT_CREATED_AT) {{
-            const renderCompleteTime = Date.now();
-            const totalTimeMs = renderCompleteTime - window.__COMPONENT_CREATED_AT;
-            renderMetrics.timing['total-request-to-render'] = Math.round(totalTimeMs * 100) / 100;
-            console.log('Total time (request to render):', totalTimeMs, 'ms');
-          }}
-          
-          console.log('Component render metrics:', JSON.stringify(renderMetrics));
-          
-          // Send metrics to backend (non-blocking)
-          fetch('/api/components/' + window.__COMPONENT_ID + '/render-metrics', {{
-            method: 'POST',
-            headers: {{ 'Content-Type': 'application/json' }},
-            body: JSON.stringify(renderMetrics)
-          }}).catch(err => console.warn('Failed to send render metrics:', err));
-        }} catch (e) {{
-          console.warn('Performance measurement failed:', e);
+      var rootEl = document.getElementById('root');
+      var root = ReactDOM.createRoot(rootEl);
+      root.render(React.createElement(SparkComponent.default));
+
+      window.addEventListener('message', function(event) {{
+        if (event.data && event.data.type === 'spark_data') {{
+          root.render(React.createElement(SparkComponent.default, {{ data: event.data.payload }}));
         }}
-      }}
-      
-      console.log('Component rendered successfully');
-      
+        if (event.data && event.data.type === 'spark_theme') {{
+          document.documentElement.classList.toggle('dark', event.data.theme === 'dark');
+        }}
+        if (event.data && event.data.type === 'data_swap') {{
+          root.render(React.createElement(SparkComponent.default, {{ data: event.data.data }}));
+        }}
+      }});
     }} catch (error) {{
-      console.error('Failed to load or render component:', error);
-      const app = document.getElementById('app');
-      if (app) {{
-        app.innerHTML = '<div style="padding: 20px; color: red;">Failed to load component: ' + error.message + '</div>';
-      }}
+      console.error('Failed to render:', error);
+      document.getElementById('root').innerHTML = '<div style="padding: 20px; color: red;">' + error.message + '</div>';
     }}
   </script>
 </body>

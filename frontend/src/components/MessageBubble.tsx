@@ -2,6 +2,7 @@ import React from 'react';
 import type { Message } from '../types';
 import { MicroappIframe } from './MicroappIframe';
 import { componentAPI } from '../services/api';
+import { Card, CardContent, CardHeader } from './ui/card';
 
 interface MessageBubbleProps {
   message: Message;
@@ -22,33 +23,35 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
   };
 
   return (
-    <div className={`chat ${isUser ? 'chat-end' : 'chat-start'} message-bubble`}>
-      <div className="chat-image avatar">
-        <div className="w-10 rounded-full bg-neutral text-neutral-content flex items-center justify-center">
-          {isUser ? '👤' : '🤖'}
-        </div>
+    <div className={`flex gap-3 p-4 max-w-2xl mx-auto ${isUser ? 'flex-row-reverse' : ''}`}>
+      <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+        {isUser ? '👤' : '🤖'}
       </div>
-      <div className="chat-header mb-1">
-        {isUser ? 'You' : 'Spark AI'}
-        <time className="text-xs opacity-50 ml-2">
-          {message.timestamp.toLocaleTimeString()}
-        </time>
-      </div>
-      <div className={`chat-bubble ${isUser ? 'chat-bubble-primary' : 'chat-bubble-secondary'}`}>
-        {message.componentId ? (
-          <div className="space-y-2">
-            <p className="text-sm opacity-80 mb-2">
-              Generated a microapp for you:
-            </p>
-            <MicroappIframe componentId={message.componentId} onFeedback={handleFeedback} />
-            {message.reasoning && (
-              <p className="text-xs opacity-60 mt-2">{message.reasoning}</p>
-            )}
+      <Card className={`flex-1 ${isUser ? 'bg-primary/10' : 'bg-muted/50'}`}>
+        <CardHeader className="pb-1">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            {isUser ? 'You' : 'Spark AI'}
+            <time className="text-xs text-muted-foreground">
+              {message.timestamp.toLocaleTimeString()}
+            </time>
           </div>
-        ) : (
-          <div className="whitespace-pre-wrap">{message.content}</div>
-        )}
-      </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {message.componentId ? (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground mb-2">
+                Generated a microapp for you:
+              </p>
+              <MicroappIframe componentId={message.componentId} onFeedback={handleFeedback} />
+              {message.reasoning && (
+                <p className="text-xs text-muted-foreground mt-2">{message.reasoning}</p>
+              )}
+            </div>
+          ) : (
+            <div className="whitespace-pre-wrap">{message.content}</div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };

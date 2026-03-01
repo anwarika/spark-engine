@@ -17,12 +17,11 @@ RUN apt-get update && apt-get install -y \
     npm \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g esbuild solid-js
-
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ ./
+RUN cd compiler && npm ci --omit=dev
 
 COPY --from=frontend-builder /app/frontend/dist ./static
 

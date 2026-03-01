@@ -2,6 +2,8 @@
 
 The Data Bridge pattern enables seamless transitions from mock/sample data to real production data without regenerating components.
 
+**v3.0 (React):** Components receive a `data` prop. The iframe listens for `{ type: 'spark_data', payload: {...} }` postMessage and re-renders with the new data. See [React Data Bridge](#react-data-bridge-v30) below.
+
 ## Concept
 
 When developing dashboards and visualizations, you often want to:
@@ -17,10 +19,10 @@ The Data Bridge makes this workflow seamless.
 ```
 ┌─────────────────┐
 │   Component     │
-│  (Solid.js)     │
+│  (Solid/v2 or React/v3)
 └────────┬────────┘
-         │ createResource(source, fetchData)
-         │ source = () => window.__DATA_MODE
+         │ v2: createResource(source, fetchData)
+         │ v3: data prop + spark_data postMessage
          ▼
 ┌─────────────────┐
 │  /data endpoint │
@@ -34,10 +36,10 @@ The Data Bridge makes this workflow seamless.
 
 **Key Components:**
 
-1. **`window.__DATA_MODE`**: Global flag (`'sample'` | `'real'`)
-2. **Reactive Source**: `createResource(() => window.__DATA_MODE, fetchData)`
+1. **v2 (Solid.js):** `window.__DATA_MODE`, `createResource(() => window.__DATA_MODE, fetchData)`
+2. **v3 (React):** `data` prop; iframe listens for `spark_data` postMessage and re-renders
 3. **Redis Storage**: Real data stored with TTL (1 hour)
-4. **postMessage API**: Parent triggers mode switch
+4. **postMessage API**: Parent triggers swap; v3 uses `{ type: 'spark_data', payload }`
 
 ## Usage
 
@@ -134,20 +136,39 @@ function MyApp() {
 Pass real data directly via postMessage:
 
 ```typescript
+// v2 (Solid.js)
 iframeRef.current?.contentWindow?.postMessage(
-  { 
-    type: 'data_swap', 
-    mode: 'real',
-    data: {
-      metrics: actualMetrics,
-      summary: actualSummary
-    }
-  },
+  { type: 'data_swap', mode: 'real', data: { metrics: actualMetrics, ... } },
+  '*'
+);
+
+// v3 (React) — preferred
+iframeRef.current?.contentWindow?.postMessage(
+  { type: 'spark_data', payload: { metrics: actualMetrics, summary: actualSummary } },
   '*'
 );
 ```
 
 **Note:** This approach stores data in the iframe's context but won't persist. Use `/data/swap` for persistent storage.
+
+### React Data Bridge (v3.0)
+
+v3 React components accept a `data` prop. The iframe HTML template listens for `spark_data` messages and re-renders:
+
+```typescript
+// Parent sends data
+iframeRef.current?.contentWindow?.postMessage(
+  { type: 'spark_data', payload: realData },
+  '*'
+);
+
+// Generated component receives data via props
+export default function MyChart({ data = sampleData }: { data?: ChartData }) {
+  return <BarChart data={data?.series ?? []} />;
+}
+```
+
+Theme sync: send `{ type: 'spark_theme', theme: 'dark' | 'light' }` to toggle dark mode in the iframe.
 
 ## Data Schema Validation
 

@@ -1,11 +1,11 @@
 # Spark - AI-Powered Micro App Generation Service
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Spark is a standalone service that generates, validates, and serves dynamic Solid.js micro-apps through a chat interface. Users interact with an LLM that decides whether to respond with text or generate a Solid.js component. Generated components are compiled, validated, sandboxed, cached, and served to the frontend.
+Spark is a standalone service that generates, validates, and serves dynamic React micro-apps through a chat interface. Users interact with an LLM that decides whether to respond with text or generate a React + shadcn/ui component. Generated components are compiled, validated, sandboxed, cached, and served to the frontend.
 
-**🆕 What's New in v2.0:** ApexCharts integration, Data Bridge pattern for sample→real data swapping, and 3 new chart templates. See [CHANGELOG.md](CHANGELOG.md) for details.
+**🆕 What's New in v3.0:** React + shadcn/ui + Recharts for generated apps, pluggable LLM gateway (OpenAI/OpenRouter/LiteLLM/LLMGW), per-request LLM config override. See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## Developer Quickstart (5 Minutes)
 
@@ -16,7 +16,7 @@ Want to add "Generate UI" capabilities to your own AI agent or chat app?
     git clone https://github.com/your-org/spark.git
     cd spark
     # Set your LLM Key
-    export OPENAI_API_KEY=sk-... 
+    export OPENAI_API_KEY=sk-...  # or LLM_PROVIDER=openrouter + OPENROUTER_API_KEY
     # Run the embedded stack
     docker-compose -f docker-compose.embedded.yml up -d
     ```
@@ -41,43 +41,44 @@ Want to add "Generate UI" capabilities to your own AI agent or chat app?
     See [Integration Guide](docs/INTEGRATION.md) for LangChain, Vercel AI SDK, and OpenAI Actions examples.
 
     **📖 Documentation:**
-    - [Migration Guide v1.x → v2.0](docs/MIGRATION_V2.md)
+    - [LLM Gateway](docs/LLM_GATEWAY.md)
+    - [Migration Guide v2.x → v3.0](docs/MIGRATION_V3.md)
     - [Data Bridge Pattern](docs/DATA_BRIDGE.md)
     - [Content-Addressable Generation (CAG)](docs/CAG.md)
     - [Changelog](CHANGELOG.md)
 
 ## Features
 
-- **LLM-Powered Generation**: OpenAI GPT-4o-mini generates optimized Solid.js components on demand
-- **Content-Addressable Generation (CAG)**: Intelligent deduplication prevents regenerating identical components (~1500ms + $0.001-0.003 saved per hit)
-- **Modern Charts**: ApexCharts integration for beautiful, interactive visualizations (line, bar, area, donut, heatmap, mixed)
-- **Data Bridge**: Sample → real data swapping via Solid.js context for seamless data transitions
+- **LLM-Powered Generation**: Pluggable LLM gateway (OpenAI, OpenRouter, LiteLLM, Bloomberg LLMGW) generates React components on demand
+- **Content-Addressable Generation (CAG)**: Intelligent deduplication prevents regenerating identical components
+- **Modern Charts**: Recharts integration for beautiful, interactive visualizations
+- **Data Bridge**: Sample → real data swapping via postMessage (`spark_data`) for seamless data transitions
 - **Multi-Layered Security**: AST analysis, forbidden API detection, and sandboxed execution
-- **High Performance**: Redis caching, esbuild compilation, CAG reuse, and Solid.js's minimal runtime
+- **High Performance**: Redis caching, esbuild compilation, CAG reuse
 - **Multi-Tenant Architecture**: Complete tenant isolation with PostgreSQL RLS
-- **Chat Interface**: Clean React + DaisyUI UI for natural interaction with data mode toggle
+- **Chat Interface**: Clean React + shadcn/ui for natural interaction with data mode toggle
 - **Component Registry**: Store, version, and manage generated components
-- **9 Pre-Built Templates**: Optimized templates for common visualization patterns
+- **9 Pre-Built Templates**: React + shadcn/ui templates for common visualization patterns
 
 ## Tech Stack
 
 ### Frontend
 - React + TypeScript
-- DaisyUI + Tailwind CSS
+- shadcn/ui + Tailwind CSS
 - Zustand (state management)
 - Axios (API client)
 
 ### Generated Micro Apps
-- Solid.js + TypeScript
-- ApexCharts for modern visualizations
-- DaisyUI for styling
+- React + TypeScript
+- shadcn/ui + Recharts for visualizations
+- Lucide React icons
 - Sandboxed iframe execution
-- Data Bridge pattern (sample → real data swap)
+- Data Bridge pattern (sample → real via `spark_data` postMessage)
 
 ### Backend
 - FastAPI + Python 3.11+
-- OpenAI API (GPT-4o-mini)
-- esbuild (Solid.js compilation)
+- Pluggable LLM gateway (OpenAI, OpenRouter, LiteLLM, LLMGW)
+- esbuild (React TSX compilation)
 - PostgreSQL (Database)
 - Redis (caching)
 
@@ -354,10 +355,11 @@ curl -X POST /api/components/{id}/data/swap \
 
 ## Performance Targets
 
-- Component generation: < 2s (P95)
+- Component generation: < 2s (P95) - **or <200ms with CAG hit**
 - Compilation time: 100-300ms
 - Compiled bundle: 10-20KB (templates: 10-15KB)
 - ApexCharts CDN: ~45KB gzipped (cached)
+- CAG lookup: <20ms (content hash database query)
 - Cache hit latency: < 50ms
 - Chart render time: < 300ms
 - Data swap latency: < 100ms

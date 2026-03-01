@@ -14,8 +14,8 @@ services:
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/spark
       # LLM Config (Developer must provide one)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
     depends_on:
       - redis
       - postgres

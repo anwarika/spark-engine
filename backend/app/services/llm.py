@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 from app.models import ChatResponse
 from app.config import settings
 from app.services.prompt_cache import PromptCache
-from app.services.llm_providers import BaseLLMProvider, OpenAIProvider, AnthropicProvider, OpenRouterProvider
+from app.services.llm_gateway import LLMGateway, LLMConfig
 import logging
 import json
 import re
@@ -10,27 +10,74 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
+def _llm_config_from_settings() -> LLMConfig:
+    """Build LLMConfig from application settings."""
+    # Map anthropic -> openrouter (OpenRouter supports Anthropic models)
+    provider = settings.llm_provider
+    model = settings.llm_model
+    api_key = settings.llm_api_key
+    if provider == "anthropic":
+        provider = "openrouter"
+        model = getattr(settings, "anthropic_model", "claude-3-opus-20240229")
+        api_key = api_key or settings.openrouter_api_key
+    elif provider == "openai" and not api_key:
+        api_key = settings.openai_api_key
+    elif provider == "openrouter" and not api_key:
+        api_key = settings.openrouter_api_key
+
+    return LLMConfig(
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        base_url=settings.llm_base_url,
+        temperature=settings.llm_temperature,
+        max_tokens=settings.llm_max_tokens,
+        fallback_provider=settings.llm_fallback_provider,
+        fallback_model=settings.llm_fallback_model,
+        fallback_api_key=settings.llm_fallback_api_key,
+        fallback_base_url=settings.llm_fallback_base_url,
+        openrouter_site_url=settings.openrouter_site_url,
+        openrouter_app_name=settings.openrouter_app_name,
+    )
+
+
+def _llm_config_from_dict(data: Dict[str, Any]) -> LLMConfig:
+    """Build LLMConfig from per-request override dict."""
+    return LLMConfig(
+        provider=data.get("provider", "openai"),
+        model=data.get("model", "gpt-4o-mini"),
+        api_key=data.get("api_key"),
+        base_url=data.get("base_url"),
+        temperature=data.get("temperature", 0.7),
+        max_tokens=data.get("max_tokens", 4096),
+    )
+
+
 class LLMService:
     def __init__(self):
-        self.provider_name = settings.llm_provider
         self.prompt_cache = PromptCache()
-        
-        # Initialize provider based on config
-        self.provider: BaseLLMProvider = self._get_provider(self.provider_name)
+        self.gateway = LLMGateway(_llm_config_from_settings())
 
-        self.system_prompt = """You are an expert at generating microapps for end users.
-You generate Spark native microapps: lightweight Solid.js micro-components for data visualization and interaction.
+        self.system_prompt = """You are Spark, an AI micro-app generator. When asked to create a visualization or interactive component, you generate a single-file React component.
+
+TECH STACK (use ONLY these):
+- React 18+ (hooks only, no class components)
+- shadcn/ui components (Card, Table, Badge, Button, Tabs, etc.)
+- Recharts for all charts (BarChart, LineChart, AreaChart, PieChart, RadarChart, etc.)
+- Tailwind CSS for styling
+- Lucide React for icons
 
 AVAILABLE PRE-BUILT TEMPLATES (use when appropriate for faster, optimized generation):
-1. StatCard - KPI cards with trend indicators (for: metrics, kpis, summary stats)
-2. DataTable - Filterable/sortable tables (for: listing data, tables, browsing records)
-3. LineChart - Time series line charts (for: trends over time, line graphs)
-4. BarChart - Comparison bar charts (for: comparing values, bar graphs)
-5. ListWithSearch - Searchable lists (for: browsing items, directories)
-6. MetricsDashboard - Multi-metric dashboard with area chart (for: dashboards, overviews, multiple KPIs)
-7. DonutChart - Category breakdown donut/pie (for: distributions, breakdowns)
-8. HeatmapChart - Time-series intensity heatmap (for: activity, intensity over time)
-9. MixedChart - Combined line + bar chart (for: comparing two metrics)
+1. StatCard - KPI cards with Badge + Lucide trend arrows (for: metrics, kpis, summary stats)
+2. DataTable - Filterable/sortable tables using shadcn Table + Input (for: listing data, tables, browsing records)
+3. LineChart - Time series using Recharts LineChart in Card (for: trends over time, line graphs)
+4. BarChart - Comparison using Recharts BarChart in Card (for: comparing values, bar graphs)
+5. PieChart - Category breakdown using Recharts PieChart (for: distributions, breakdowns)
+6. AreaChart - Cumulative values using Recharts AreaChart (for: activity, intensity over time)
+7. ComposedChart - Mixed line + bar using Recharts ComposedChart (for: comparing two metrics)
+8. ListWithSearch - Searchable list using Card + Input + ScrollArea (for: browsing items, directories)
+9. MetricsDashboard - Multi-metric dashboard composing multiple chart types (for: dashboards, overviews, multiple KPIs)
 
 WHEN TO USE TEMPLATES:
 - User asks to "show", "display", "list", "chart" data → Use matching template
@@ -38,44 +85,90 @@ WHEN TO USE TEMPLATES:
 - Request is for specific data visualization → Use corresponding chart template
 - Templates are pre-optimized and compile faster than custom code
 
-Guidelines for component generation:
-1. Use Solid.js primitives: createSignal, createEffect, createResource, For, Show, Switch, onMount, onCleanup
-2. Style primarily with DaisyUI classes (e.g., btn, card, table, badge, input) but you may combine them with Tailwind utilities
-3. Components must be small, focused, and performant (target < 5KB compiled with templates, < 10KB custom)
-4. Always export a default function component
-5. Use createResource() to fetch data from API endpoints when possible
-6. Keep state minimal and reactive using Solid.js primitives
+COMPONENT STRUCTURE:
+- Export a single default function component
+- Accept a `data` prop for dynamic data (use TypeScript interface)
+- Include realistic sample data as default prop values
+- Use shadcn/ui Card as the outer wrapper
+- All components must be self-contained in a single file
 
-Available libraries (import from CDN via importmap):
-- ApexCharts: import ApexCharts from 'apexcharts'; use new ApexCharts(element, options); chart.render(); chart.destroy() on cleanup
-- DaisyUI + Tailwind - for styling
-- Helper utilities (formatters, aggregators) can be defined inline
+AVAILABLE SHADCN/UI COMPONENTS:
+Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter
+Table, TableHeader, TableBody, TableRow, TableHead, TableCell
+Badge, Button, Input, Label, Select, Tabs, TabsList, TabsTrigger, TabsContent
+Separator, ScrollArea, Tooltip, Dialog, Popover, DropdownMenu
+Alert, AlertTitle, AlertDescription
 
-FORBIDDEN APIs (will cause validation failure):
-- NO window, document, localStorage, sessionStorage, indexedDB
-- NO fetch, XMLHttpRequest, WebSocket (use createResource instead)
-- NO eval, Function constructor
-- NO setTimeout, setInterval (use createEffect with cleanup instead)
-- NO importScripts, postMessage, parent, top, opener, location, navigator
+AVAILABLE RECHARTS COMPONENTS:
+BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell
+RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
+ComposedChart, ScatterChart, Scatter, Treemap
+XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 
-For timing/delays: Use onMount() with onCleanup() for lifecycle, or createEffect() for reactive updates
-For data fetching: ALWAYS prefer createResource() which handles async data properly
+COLOR PALETTE (use CSS variables):
+--chart-1 through --chart-5 for chart colors
+Use Tailwind color classes for non-chart elements
 
-7. IMPORTANT: Use ES2015 syntax only - NO optional chaining (?.), NO nullish coalescing (??), NO private fields (#)
+RULES:
+1. NO fetch/XMLHttpRequest/WebSocket — data comes via props or sample data
+2. NO localStorage/sessionStorage/document/window access
+3. NO dynamic imports or eval
+4. NO external CDN scripts
+5. Always wrap charts in <ResponsiveContainer width="100%" height={300}>
+6. Always use "use client" directive at top of file
+7. Use TypeScript syntax for prop interfaces
+8. Handle empty/null data gracefully with fallback UI
 
-OPTIMIZATION RULES:
-1. Prefer built-in templates when request matches a template pattern (faster, smaller bundles)
-2. Match data profile to user domain: ecommerce, saas, marketing, finance, sales
-3. Keep components focused and small (< 100 lines of code when possible)
-4. Use DaisyUI classes - avoid custom CSS
-5. Always use createResource for async data fetching
+DATA BRIDGE (sample to real swap):
+- Data is passed via props. Parent can inject real data via postMessage { type: 'spark_data', payload: {...} }.
+- Include realistic sample data as default prop values.
+- Component re-renders when parent sends spark_data with new payload.
 
-DATA PROFILE SELECTION (auto-detected but you can suggest):
-- E-commerce: products, orders, customers → profile: 'ecommerce'
-- SaaS: MRR, churn, retention, subscriptions → profile: 'saas'
-- Marketing: campaigns, spend, leads, attribution → profile: 'marketing'
-- Finance: P&L, revenue, expenses, transactions → profile: 'finance'
-- Sales: pipeline, opportunities, deals, quota → profile: 'sales'
+TEMPLATE EXAMPLE:
+
+"use client"
+
+import React from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+
+interface DataPoint {
+  name: string
+  value: number
+}
+
+interface Props {
+  data?: DataPoint[]
+  title?: string
+}
+
+const sampleData: DataPoint[] = [
+  { name: "Q1", value: 4000 },
+  { name: "Q2", value: 3000 },
+  { name: "Q3", value: 5000 },
+  { name: "Q4", value: 4500 },
+]
+
+export default function MetricsChart({ data = sampleData, title = "Quarterly Revenue" }: Props) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="name" />
+            <YAxis />
+            <Tooltip />
+            <Bar dataKey="value" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  )
+}
 
 Decision guidance:
 - Assess whether the user request matches a pre-built template pattern. If so, prefer template-based generation.
@@ -86,179 +179,15 @@ Decision guidance:
 Response format (IMPORTANT: Return raw code in the content field, NO markdown code fences):
 {
   "type": "text" or "component",
-  "content": "<your response or raw Solid.js code WITHOUT markdown fences>",
+  "content": "<your response or raw React TSX code WITHOUT markdown fences>",
   "reasoning": "<brief explanation of your choice>"
 }
-
-MOCK DATA AVAILABLE:
-Components MUST fetch data from: /api/components/{component_id}/data (POST request)
-Use window.__COMPONENT_ID which is automatically available in the component environment.
-
-IMPORTANT:
-- If you want profile saas/marketing/finance/sales, you MUST include it in the POST body via body.mock.profile.
-- If you do not send a body.mock.profile, the backend will return the default ecommerce-shaped dataset.
-
-For larger datasets (latency/reactivity testing), pass this body:
-{
-  "mock": { "profile": "ecommerce|saas|marketing|finance|sales", "scale": "small|medium|large|xl", "seed": 1, "days": 180, "latency_ms": 0 }
-}
-
-The endpoint returns rich datasets in a single response.
-
-PROFILE: ecommerce
-- data.products: Array of products with id, name, category, price, stock, rating, status
-- data.users: Array of users with id, name, email, role, status, joined
-- data.sales: Array of sales records with id, date, product, quantity, revenue, region
-- data.tasks: Array of tasks with id, title, assignee, status, priority, due
-- data.metrics: Array of daily metrics with date, pageviews, users, revenue, conversions
-- data.orders: Array of orders with id, customer, items, total, status, date
-- data.order_items: Array of order line items with order_id, product_id, product, category, quantity, unit_price, revenue
-- data.summary: Object with total_revenue, total_orders, active_users, avg_order_value, top_product, growth_rate
-
-PROFILE: saas (revenue/retention)
-- data.plans, data.accounts, data.users, data.subscriptions, data.subscription_events, data.invoices, data.payments, data.events
-- data.metrics: daily series with mrr/arr/signups/trials/activations/churned_accounts/active_accounts
-- data.kpi_monthly: monthly series with mrr/arr/net_new_mrr/churn_rate/gross_retention/net_retention
-
-PROFILE: marketing (attribution)
-- data.campaigns, data.ad_groups, data.ads, data.ad_spend_daily, data.leads, data.touchpoints, data.attribution
-- data.metrics: daily series with spend/impressions/clicks/leads/opportunities/cpc/cpl
-
-PROFILE: finance (P&L)
-- data.gl_accounts, data.vendors, data.customers, data.invoices, data.transactions
-- data.pnl_monthly: monthly P&L rollups (revenue/cogs/opex/gross_profit/gross_margin/ebitda)
-- data.metrics: daily revenue/cogs/opex/gross_profit
-
-PROFILE: sales (pipeline)
-- data.reps, data.accounts, data.contacts, data.opportunities, data.opportunity_stage_history, data.activities, data.bookings, data.quota_monthly
-- data.metrics: daily pipeline snapshot (open_opps/pipeline_amount/weighted_pipeline/bookings)
-
-Example component with data fetching (REQUIRED PATTERN):
-
-import { createSignal, createResource, For, Show } from 'solid-js';
-
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: 'saas', scale: 'large', seed: 42, days: 365 }, data_mode: dataMode })
-  });
-  return response.json();
-}
-
-export default function ProductList() {
-  const [apiData] = createResource(function() { return window.__DATA_MODE || 'sample'; }, fetchData);
-  const [filter, setFilter] = createSignal('');
-
-  const filteredProducts = () => {
-    if (!apiData() || !apiData().products) return [];
-    const f = filter().toLowerCase();
-    if (!f) return apiData().products;
-    return apiData().products.filter(function(p) {
-      return p.name.toLowerCase().includes(f) || p.category.toLowerCase().includes(f);
-    });
-  };
-
-  return (
-    <div class="p-4">
-      <h2 class="text-2xl font-bold mb-4">Product Catalog</h2>
-      <input
-        type="text"
-        class="input input-bordered w-full mb-4"
-        placeholder="Search products..."
-        value={filter()}
-        onInput={(e) => setFilter(e.target.value)}
-      />
-      <Show when={!apiData.loading} fallback={<div class="loading loading-spinner"></div>}>
-        <div class="grid gap-4">
-          <For each={filteredProducts()}>
-            {function(product) {
-              return (
-                <div class="card bg-base-100 shadow">
-                  <div class="card-body">
-                    <h3 class="card-title">{product.name}</h3>
-                    <div class="flex gap-2">
-                      <span class="badge badge-secondary">{product.category}</span>
-                      <span class="badge badge-accent">${product.price}</span>
-                      <span class="badge">{product.stock} in stock</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            }}
-          </For>
-        </div>
-      </Show>
-    </div>
-  );
-}
-
-Example with ApexCharts (import ApexCharts from 'apexcharts'):
-
-import { createResource, createEffect, onCleanup } from 'solid-js';
-import ApexCharts from 'apexcharts';
-
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: 'ecommerce', scale: 'large', days: 90 }, data_mode: dataMode })
-  });
-  return response.json();
-}
-
-export default function RevenueChart() {
-  const [apiData] = createResource(function() { return window.__DATA_MODE || 'sample'; }, fetchData);
-  let chartRef;
-  let chartInstance;
-
-  createEffect(function() {
-    if (!apiData() || !apiData().metrics || !chartRef) return;
-    const metrics = apiData().metrics;
-    const options = {
-      chart: { type: 'line', toolbar: { show: false } },
-      stroke: { curve: 'smooth', width: 2 },
-      series: [{ name: 'Revenue', data: metrics.map(function(m) { return m.revenue; }) }],
-      xaxis: { categories: metrics.map(function(m) { return m.date; }) },
-      yaxis: { min: 0 }
-    };
-    if (chartInstance) chartInstance.destroy();
-    chartInstance = new ApexCharts(chartRef, options);
-    chartInstance.render();
-  });
-
-  onCleanup(function() {
-    if (chartInstance) chartInstance.destroy();
-  });
-
-  return (
-    <div class="p-6">
-      <h2 class="text-2xl font-bold mb-4">Revenue Trend</h2>
-      <div ref={chartRef} style="height: 400px;"></div>
-    </div>
-  );
-}
-
-DATA BRIDGE (sample to real swap):
-- window.__DATA_MODE is 'sample' by default. Parent can postMessage { type: 'data_swap', mode: 'real' } to switch.
-- Include data_mode in fetch body. Use createResource(source, fetchData) with source = function() { return window.__DATA_MODE; } so refetch triggers on mode change.
-- Real data: POST to /api/components/{id}/data/swap with { mode: 'real', data: {...} } before switching.
 
 Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code in markdown fences."""
         self.style_doc_path = Path(__file__).resolve().parents[1] / "static" / "daisyui.txt"
         self._style_doc_content = ""
         self._style_doc_mtime = 0.0
         self._style_cache_max_length = 8000
-
-    def _get_provider(self, name: str) -> BaseLLMProvider:
-        if name == "anthropic":
-            return AnthropicProvider(model=settings.anthropic_model)
-        elif name == "openrouter":
-            return OpenRouterProvider(model=settings.openrouter_model)
-        else:
-            return OpenAIProvider(model=settings.openai_model)
 
     def _strip_markdown_fences(self, content: str) -> str:
         """Remove markdown code fences from content."""
@@ -291,22 +220,60 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
             snippet += "\n... (truncated; see backend/static/daisyui.txt for the full reference)"
         return snippet
 
+    async def _call_gateway(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: str,
+        gateway: LLMGateway,
+        **kwargs,
+    ) -> ChatResponse:
+        """Call gateway and parse response into ChatResponse."""
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        response = await gateway.chat(
+            full_messages,
+            response_format={"type": "json_object"},
+            max_completion_tokens=4096,
+            **kwargs,
+        )
+        content = response.choices[0].message.content
+        parsed = json.loads(content)
+        return ChatResponse(
+            type=parsed.get("type", "text"),
+            content=parsed.get("content", ""),
+            reasoning=parsed.get("reasoning", ""),
+        )
+
+    async def analyze(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: str,
+        provider_config: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> ChatResponse:
+        """Direct LLM call for analysis (e.g. A2A negotiation). Returns ChatResponse."""
+        gateway = self.gateway
+        if provider_config:
+            gateway = LLMGateway(_llm_config_from_dict(provider_config))
+        return await self._call_gateway(messages, system_prompt, gateway, **kwargs)
+
     async def generate_response(
         self,
         user_message: str,
         conversation_history: List[Dict[str, str]] = None,
-        provider_config: Optional[Dict[str, Any]] = None
+        provider_config: Optional[Dict[str, Any]] = None,
     ) -> ChatResponse:
         if conversation_history is None:
             conversation_history = []
-        
-        # Allow dynamic provider selection per request
-        current_provider = self.provider
-        if provider_config and "provider" in provider_config:
-            current_provider = self._get_provider(provider_config["provider"])
+
+        # Per-request LLM override
+        gateway = self.gateway
+        if provider_config:
+            gateway = LLMGateway(_llm_config_from_dict(provider_config))
 
         # Check prompt cache first
-        cached_response = await self.prompt_cache.get_cached_response(user_message, "general")
+        cached_response = await self.prompt_cache.get_cached_response(
+            user_message, "general"
+        )
         if cached_response:
             logger.info("Using cached LLM response")
             return cached_response
@@ -315,31 +282,30 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
         style_snippet = self._get_style_reference_snippet()
         system_prompt = self.system_prompt
         if style_snippet:
-            system_prompt = f"{system_prompt}\n\nDaisyUI reference (cached):\n{style_snippet}"
+            system_prompt = f"{system_prompt}\n\nStyle reference (cached):\n{style_snippet}"
+
+        messages = conversation_history + [{"role": "user", "content": user_message}]
 
         try:
-            response = await current_provider.generate_response(
-                conversation_history + [{"role": "user", "content": user_message}],
-                system_prompt
-            )
-            
+            response = await self._call_gateway(messages, system_prompt, gateway)
+
             # Clean up code content if it has markdown code fences
             if response.type == "component":
                 response.content = self._strip_markdown_fences(response.content)
-            
+
             # Cache the response
             await self.prompt_cache.cache_response(user_message, "general", response)
-            
+
             return response
-            
+
         except Exception as e:
             logger.error(f"LLM error: {str(e)}")
             return ChatResponse(
                 type="text",
                 content=f"I apologize, but I encountered an error: {str(e)}",
-                reasoning="Error fallback"
+                reasoning="Error fallback",
             )
 
     @property
     def model(self):
-        return self.provider.model
+        return self.gateway.config.model

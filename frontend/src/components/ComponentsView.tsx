@@ -3,6 +3,9 @@ import { MicroappIframe } from './MicroappIframe';
 import { componentAPI } from '../services/api';
 import type { Component } from '../types';
 import { useChatStore } from '../store/chatStore';
+import { Alert, AlertDescription } from './ui/alert';
+import { Badge } from './ui/badge';
+import { Skeleton } from './ui/skeleton';
 
 export const ComponentsView: React.FC = () => {
   const [components, setComponents] = useState<Component[]>([]);
@@ -52,7 +55,7 @@ export const ComponentsView: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <span className="loading loading-spinner loading-lg"></span>
+        <Skeleton className="h-12 w-12 rounded-full" />
       </div>
     );
   }
@@ -60,9 +63,9 @@ export const ComponentsView: React.FC = () => {
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="alert alert-error">
-          <span>{error}</span>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       </div>
     );
   }
@@ -72,7 +75,7 @@ export const ComponentsView: React.FC = () => {
       <div className="flex items-center justify-center h-full">
         <div className="text-center max-w-md">
           <h2 className="text-2xl font-bold mb-4">No Microapps Yet</h2>
-          <p className="text-base-content/70">
+          <p className="text-muted-foreground">
             Microapps you generate in the chat will appear here. Start a conversation to create your first microapp!
           </p>
         </div>
@@ -84,7 +87,7 @@ export const ComponentsView: React.FC = () => {
     <div className="p-6 space-y-6 overflow-y-auto h-full">
       <div className="mb-4">
         <h2 className="text-2xl font-bold">Your Microapps</h2>
-        <p className="text-sm text-base-content/70 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           {components.length} microapp{components.length !== 1 ? 's' : ''} rendered
         </p>
       </div>
@@ -95,15 +98,13 @@ export const ComponentsView: React.FC = () => {
               <div>
                 <h3 className="font-semibold text-lg">{component.name}</h3>
                 {component.description && (
-                  <p className="text-sm text-base-content/70">{component.description}</p>
+                  <p className="text-sm text-muted-foreground">{component.description}</p>
                 )}
               </div>
-              <div className="badge badge-outline">
-                {component.status}
-              </div>
+              <Badge variant="outline">{component.status}</Badge>
             </div>
             <MicroappIframe componentId={component.id} />
-            <div className="text-xs text-base-content/50">
+            <div className="text-xs text-muted-foreground">
               Created: {new Date(component.created_at).toLocaleString()}
             </div>
           </div>

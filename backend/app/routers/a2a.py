@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from app.services.llm import LLMService
+from app.services.llm_gateway import LLMConfig
 from app.services.registry import RegistryService
 from app.services.compiler import ComponentCompiler
 from app.services.validator import CodeValidator
@@ -11,6 +12,8 @@ from app.middleware.auth import get_tenant_id, get_user_id
 import datetime
 import json
 import logging
+import time
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -20,17 +23,26 @@ registry_service = RegistryService()
 compiler = ComponentCompiler()
 validator = CodeValidator()
 
+
 class A2AGenerateRequest(BaseModel):
     prompt: str
-    data_context: Optional[Dict[str, Any]] = None # The actual data or schema
+    data_context: Optional[Dict[str, Any]] = None
     style_context: Optional[Dict[str, Any]] = None
-    provider_config: Optional[Dict[str, Any]] = None # BYO-LLM config
+    template_hint: Optional[str] = None
+    theme: str = "light"
+    provider_config: Optional[Dict[str, Any]] = None  # legacy
+    llm_config: Optional[LLMConfig] = None  # per-request LLM override
+
 
 class A2AResponse(BaseModel):
-    status: str # "success", "needs_info", "error"
-    microapp_url: Optional[str] = None
+    status: str  # "success", "needs_info", "error"
+    microapp_url: Optional[str] = None  # legacy
     component_id: Optional[str] = None
-    missing_info: Optional[Dict[str, Any]] = None # Schema of missing data
+    render_url: Optional[str] = None
+    iframe_url: Optional[str] = None
+    embed_html: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    missing_info: Optional[Dict[str, Any]] = None
     message: Optional[str] = None
 
 @router.post("/generate", response_model=A2AResponse)
@@ -66,11 +78,14 @@ If the user provides data (e.g. "sales": [...]), status is "sufficient".
         {"role": "user", "content": f"Prompt: {body.prompt}\nData Context: {json.dumps(body.data_context or {})}"}
     ]
     
+    provider_config = body.llm_config.model_dump(exclude_none=True) if body.llm_config else body.provider_config
+
     try:
-        analysis_response = await llm_service.provider.generate_response(
-            analysis_messages, 
+        analysis_response = await llm_service.analyze(
+            analysis_messages,
             analysis_system_prompt,
-            temperature=0.1
+            provider_config=provider_config,
+            temperature=0.1,
         )
         try:
             analysis = json.loads(analysis_response.content)
@@ -98,8 +113,8 @@ If the user provides data (e.g. "sales": [...]), status is "sufficient".
     full_prompt = f"{body.prompt}\n{context_str}"
     
     response = await llm_service.generate_response(
-        full_prompt, 
-        provider_config=body.provider_config
+        full_prompt,
+        provider_config=provider_config,
     )
     
     if response.type != "component":
@@ -109,8 +124,10 @@ If the user provides data (e.g. "sales": [...]), status is "sufficient".
         )
         
     # 4. Compilation & Save
+    compile_start = time.time()
     code_hash = ComponentCompiler.compute_hash(response.content)
     compilation_result = await compiler.compile(response.content, code_hash)
+    compile_time_ms = int((time.time() - compile_start) * 1000)
     
     if not compilation_result.success:
         return A2AResponse(status="error", message=f"Compilation failed: {compilation_result.error}")
@@ -136,16 +153,23 @@ If the user provides data (e.g. "sales": [...]), status is "sufficient".
         logger.error(f"Failed to save component: {e}")
         return A2AResponse(status="error", message="Failed to save component")
     
-    # Construct Render URL
-    # Assuming request.base_url is correct, or use a configured public URL
-    # Removing trailing slash if present
     base = str(request.base_url).rstrip("/")
-    render_url = f"{base}/api/components/{component_id}/iframe"
-    
+    iframe_url = f"{base}/api/components/{component_id}/iframe"
+    embed_html = f'<iframe src="{iframe_url}" sandbox="allow-scripts allow-same-origin"></iframe>'
+
     return A2AResponse(
         status="success",
-        component_id=component_id,
-        microapp_url=render_url
+        component_id=str(component_id),
+        microapp_url=iframe_url,
+        render_url=f"{base}/api/a2a/render?prompt={quote(body.prompt[:200])}",
+        iframe_url=iframe_url,
+        embed_html=embed_html,
+        metadata={
+            "template_used": body.template_hint or "custom",
+            "compile_time_ms": compile_time_ms,
+            "bundle_size_bytes": compilation_result.bundle_size,
+            "cache_hit": False,
+        },
     )
 
 @router.get("/render", response_class=HTMLResponse)

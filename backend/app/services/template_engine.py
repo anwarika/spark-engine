@@ -161,12 +161,12 @@ class TemplateEngine:
             code = self._fill_list(code, user_prompt, profile)
         elif template.name == "MetricsDashboard":
             code = self._fill_dashboard(code, user_prompt, profile)
-        elif template.name == "DonutChart":
-            code = self._fill_donut_chart(code, user_prompt, profile)
-        elif template.name == "HeatmapChart":
-            code = self._fill_heatmap_chart(code, user_prompt, profile)
-        elif template.name == "MixedChart":
-            code = self._fill_mixed_chart(code, user_prompt, profile)
+        elif template.name == "PieChart":
+            code = self._fill_pie_chart(code, user_prompt, profile)
+        elif template.name == "AreaChart":
+            code = self._fill_area_chart(code, user_prompt, profile)
+        elif template.name == "ComposedChart":
+            code = self._fill_composed_chart(code, user_prompt, profile)
         
         return code
 
@@ -198,23 +198,29 @@ class TemplateEngine:
     def _fill_data_table(self, code: str, prompt: str, profile: str) -> str:
         """Fill DataTable template with sensible defaults."""
         if profile == "saas":
-            return code.replace("{{TABLE_TITLE}}", "Accounts") \
-                .replace("{{DATA_ARRAY}}", "accounts") \
-                .replace("{{DEFAULT_SORT}}", "name") \
-                .replace("{{TABLE_HEADERS}}", '<th onClick={() => toggleSort("name")}>Name</th><th onClick={() => toggleSort("segment")}>Segment</th><th onClick={() => toggleSort("region")}>Region</th><th>Status</th>') \
-                .replace("{{TABLE_CELLS}}", "<td>{item.name}</td><td><span class='badge'>{item.segment}</span></td><td>{item.region}</td><td><span class='badge badge-success'>{item.status}</span></td>")
+            return code.replace("{{TABLE_TITLE}}", "Accounts").replace(
+                "{{TABLE_HEADERS}}",
+                "<TableHead>Name</TableHead><TableHead>Segment</TableHead><TableHead>Region</TableHead><TableHead>Status</TableHead>",
+            ).replace(
+                "{{TABLE_CELLS}}",
+                "<TableCell>{item.name}</TableCell><TableCell><Badge variant=\"secondary\">{item.segment}</Badge></TableCell><TableCell>{item.region}</TableCell><TableCell>{item.status}</TableCell>",
+            )
         elif profile == "sales":
-            return code.replace("{{TABLE_TITLE}}", "Opportunities") \
-                .replace("{{DATA_ARRAY}}", "opportunities") \
-                .replace("{{DEFAULT_SORT}}", "amount") \
-                .replace("{{TABLE_HEADERS}}", '<th onClick={() => toggleSort("id")}>ID</th><th>Account</th><th onClick={() => toggleSort("amount")}>Amount</th><th onClick={() => toggleSort("stage")}>Stage</th>') \
-                .replace("{{TABLE_CELLS}}", "<td>{item.id}</td><td>{item.account_id}</td><td>${item.amount.toFixed(0)}</td><td><span class='badge'>{item.stage}</span></td>")
+            return code.replace("{{TABLE_TITLE}}", "Opportunities").replace(
+                "{{TABLE_HEADERS}}",
+                "<TableHead>ID</TableHead><TableHead>Account</TableHead><TableHead>Amount</TableHead><TableHead>Stage</TableHead>",
+            ).replace(
+                "{{TABLE_CELLS}}",
+                "<TableCell>{item.id}</TableCell><TableCell>{item.account_id}</TableCell><TableCell>${item.amount?.toFixed(0)}</TableCell><TableCell><Badge variant=\"secondary\">{item.stage}</Badge></TableCell>",
+            )
         else:  # ecommerce
-            return code.replace("{{TABLE_TITLE}}", "Products") \
-                .replace("{{DATA_ARRAY}}", "products") \
-                .replace("{{DEFAULT_SORT}}", "name") \
-                .replace("{{TABLE_HEADERS}}", '<th onClick={() => toggleSort("name")}>Product</th><th onClick={() => toggleSort("category")}>Category</th><th onClick={() => toggleSort("price")}>Price</th><th onClick={() => toggleSort("stock")}>Stock</th>') \
-                .replace("{{TABLE_CELLS}}", "<td>{item.name}</td><td><span class='badge'>{item.category}</span></td><td>${item.price}</td><td>{item.stock}</td>")
+            return code.replace("{{TABLE_TITLE}}", "Products").replace(
+                "{{TABLE_HEADERS}}",
+                "<TableHead>Product</TableHead><TableHead>Category</TableHead><TableHead>Price</TableHead><TableHead>Stock</TableHead>",
+            ).replace(
+                "{{TABLE_CELLS}}",
+                "<TableCell>{item.name}</TableCell><TableCell><Badge variant=\"secondary\">{item.category}</Badge></TableCell><TableCell>${item.price}</TableCell><TableCell>{item.stock}</TableCell>",
+            )
 
     def _fill_line_chart(self, code: str, prompt: str, profile: str) -> str:
         """Fill LineChart template."""
@@ -244,8 +250,8 @@ class TemplateEngine:
                 .replace("{{VALUE_FIELD}}", "revenue") \
                 .replace("{{VALUE_LABEL}}", "Revenue")
 
-    def _fill_donut_chart(self, code: str, prompt: str, profile: str) -> str:
-        """Fill DonutChart template."""
+    def _fill_pie_chart(self, code: str, prompt: str, profile: str) -> str:
+        """Fill PieChart template."""
         if profile == "ecommerce":
             return code.replace("{{CHART_TITLE}}", "Sales by Category") \
                 .replace("{{DATA_ARRAY}}", "products") \
@@ -262,8 +268,8 @@ class TemplateEngine:
                 .replace("{{CATEGORY_FIELD}}", "category") \
                 .replace("{{VALUE_FIELD}}", "price")
 
-    def _fill_heatmap_chart(self, code: str, prompt: str, profile: str) -> str:
-        """Fill HeatmapChart template."""
+    def _fill_area_chart(self, code: str, prompt: str, profile: str) -> str:
+        """Fill AreaChart template."""
         if profile == "saas":
             return code.replace("{{CHART_TITLE}}", "MRR Intensity") \
                 .replace("{{DATE_FIELD}}", "date") \
@@ -275,8 +281,8 @@ class TemplateEngine:
                 .replace("{{VALUE_FIELD}}", "revenue") \
                 .replace("{{METRIC_LABEL}}", "Revenue")
 
-    def _fill_mixed_chart(self, code: str, prompt: str, profile: str) -> str:
-        """Fill MixedChart template."""
+    def _fill_composed_chart(self, code: str, prompt: str, profile: str) -> str:
+        """Fill ComposedChart template."""
         if profile == "saas":
             return code.replace("{{CHART_TITLE}}", "MRR vs Churn") \
                 .replace("{{DATE_FIELD}}", "date") \
@@ -295,86 +301,16 @@ class TemplateEngine:
     def _fill_list(self, code: str, prompt: str, profile: str) -> str:
         """Fill ListWithSearch template."""
         if profile == "ecommerce":
-            return code.replace("{{LIST_TITLE}}", "Products") \
-                .replace("{{ITEMS_ARRAY}}", "products") \
-                .replace("{{NAME_FIELD}}", "name") \
-                .replace("{{CATEGORY_FIELD}}", "category") \
-                .replace("{{ITEM_DETAILS}}", "<p class='text-sm text-base-content/70'>${item.price} - {item.stock} in stock</p>")
+            return code.replace("{{LIST_TITLE}}", "Products")
         else:
-            return code.replace("{{LIST_TITLE}}", "Items") \
-                .replace("{{ITEMS_ARRAY}}", "items") \
-                .replace("{{NAME_FIELD}}", "name") \
-                .replace("{{CATEGORY_FIELD}}", "category") \
-                .replace("{{ITEM_DETAILS}}", "<p class='text-sm text-base-content/70'>{item.status}</p>")
+            return code.replace("{{LIST_TITLE}}", "Items")
 
     def _fill_dashboard(self, code: str, prompt: str, profile: str) -> str:
         """Fill MetricsDashboard template."""
         if profile == "saas":
-            return code.replace("{{DASHBOARD_TITLE}}", "SaaS Metrics") \
-                .replace("{{CHART_METRIC}}", "MRR") \
-                .replace("{{CHART_VALUE}}", "mrr") \
-                .replace("{{STAT_CARDS}}", self._generate_stat_cards_saas()) \
-                .replace("{{RECENT_ITEMS}}", '<ul class="space-y-2"><For each={apiData().events?.slice(0, 5)}>{function(e) { return <li class="text-sm">{e.event_type} - {e.event_date}</li>; }}</For></ul>') \
-                .replace("{{SUMMARY_ITEMS}}", '<div class="space-y-2"><p>ARR: ${formatCurrency(apiData().summary?.arr)}</p><p>Retention: {(apiData().summary?.net_retention * 100).toFixed(1)}%</p></div>')
+            return code.replace("{{DASHBOARD_TITLE}}", "SaaS Metrics")
         else:
-            return code.replace("{{DASHBOARD_TITLE}}", "Dashboard") \
-                .replace("{{CHART_METRIC}}", "Revenue") \
-                .replace("{{CHART_VALUE}}", "revenue") \
-                .replace("{{STAT_CARDS}}", self._generate_stat_cards_ecommerce()) \
-                .replace("{{RECENT_ITEMS}}", '<ul class="space-y-2"><For each={apiData().orders?.slice(0, 5)}>{function(o) { return <li class="text-sm">Order #{o.id} - ${o.total}</li>; }}</For></ul>') \
-                .replace("{{SUMMARY_ITEMS}}", '<div class="space-y-2"><p>Total Revenue: {formatCurrency(apiData().summary?.total_revenue)}</p><p>Orders: {apiData().summary?.total_orders}</p></div>')
-
-    def _generate_stat_cards_saas(self) -> str:
-        return '''<div class="card bg-base-100 shadow">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-medium text-base-content/70">MRR</h3>
-              <div class="text-2xl font-bold">{formatCurrency(apiData().summary?.mrr)}</div>
-            </div>
-          </div>
-          <div class="card bg-base-100 shadow">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-medium text-base-content/70">Active Accounts</h3>
-              <div class="text-2xl font-bold">{apiData().summary?.active_accounts}</div>
-            </div>
-          </div>
-          <div class="card bg-base-100 shadow">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-medium text-base-content/70">Retention</h3>
-              <div class="text-2xl font-bold">{((apiData().summary?.net_retention || 0) * 100).toFixed(1)}%</div>
-            </div>
-          </div>
-          <div class="card bg-base-100 shadow">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-medium text-base-content/70">ARR</h3>
-              <div class="text-2xl font-bold">{formatCurrency(apiData().summary?.arr)}</div>
-            </div>
-          </div>'''
-
-    def _generate_stat_cards_ecommerce(self) -> str:
-        return '''<div class="card bg-base-100 shadow">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-medium text-base-content/70">Revenue</h3>
-              <div class="text-2xl font-bold">{formatCurrency(apiData().summary?.total_revenue)}</div>
-            </div>
-          </div>
-          <div class="card bg-base-100 shadow">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-medium text-base-content/70">Orders</h3>
-              <div class="text-2xl font-bold">{apiData().summary?.total_orders}</div>
-            </div>
-          </div>
-          <div class="card bg-base-100 shadow">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-medium text-base-content/70">AOV</h3>
-              <div class="text-2xl font-bold">{formatCurrency(apiData().summary?.avg_order_value)}</div>
-            </div>
-          </div>
-          <div class="card bg-base-100 shadow">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-medium text-base-content/70">Active Users</h3>
-              <div class="text-2xl font-bold">{apiData().summary?.active_users}</div>
-            </div>
-          </div>'''
+            return code.replace("{{DASHBOARD_TITLE}}", "Dashboard")
 
     async def generate_from_template(self, user_prompt: str) -> Optional[str]:
         """

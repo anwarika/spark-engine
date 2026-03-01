@@ -1,4 +1,4 @@
-"""Pre-built SolidJS component templates for rapid generation."""
+"""Pre-built React + shadcn/ui component templates for rapid generation."""
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional
@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 @dataclass
 class ComponentTemplate:
     """A pre-built component template."""
+
     name: str
     category: str  # 'chart', 'table', 'card', 'dashboard', 'list'
     description: str
@@ -15,654 +16,614 @@ class ComponentTemplate:
     data_requirements: List[str]  # What data fields are expected
 
 
-# StatCard Template - KPI cards with trend indicators
+# StatCard Template - KPI cards with Badge + Lucide trend arrows
 STAT_CARD_TEMPLATE = ComponentTemplate(
     name="StatCard",
     category="card",
-    description="Single KPI metric card with trend indicator",
+    description="KPI cards with Badge and Lucide trend indicators",
     tags=["kpi", "metric", "card", "stat"],
     data_requirements=["title", "value", "trend"],
-    code="""import { createSignal, createResource } from 'solid-js';
+    code='''"use client"
 
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' }, data_mode: dataMode })
-  });
-  return response.json();
+import React from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { TrendingUp } from "lucide-react"
+
+interface KpiItem {
+  title: string
+  value: number | string
+  trend?: string
 }
 
-export default function StatCard() {
-  const [data] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
-  
-  const formatValue = (val) => {
-    if (typeof val === 'number') {
-      if (val > 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
-      if (val > 1000) return '$' + (val / 1000).toFixed(1) + 'K';
-      return '$' + val.toFixed(0);
-    }
-    return val;
-  };
-  
+interface Props {
+  data?: KpiItem[]
+}
+
+const sampleData: KpiItem[] = [
+  { title: "{{TITLE_1}}", value: 0, trend: "+{{TREND_1}}%" },
+  { title: "{{TITLE_2}}", value: 0, trend: "+{{TREND_2}}%" },
+  { title: "{{TITLE_3}}", value: "0.00" },
+  { title: "{{TITLE_4}}", value: "-" },
+]
+
+const formatValue = (val: number | string) => {
+  if (typeof val === "number") {
+    if (val > 1000000) return "$" + (val / 1000000).toFixed(1) + "M"
+    if (val > 1000) return "$" + (val / 1000).toFixed(1) + "K"
+    return "$" + val.toFixed(0)
+  }
+  return String(val)
+}
+
+export default function StatCard({ data = sampleData }: Props) {
   return (
-    <div class="p-6">
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="card bg-base-100 shadow-lg">
-          <div class="card-body">
-            <h3 class="text-sm font-medium text-base-content/70">{{TITLE_1}}</h3>
-            <div class="text-3xl font-bold">{data.loading ? '...' : formatValue(data()?.summary?.{{VALUE_1}})}</div>
-            <div class="text-sm text-success">+{{TREND_1}}%</div>
-          </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Key Metrics</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {data.map((item, i) => (
+            <div key={i} className="p-4 rounded-lg border">
+              <p className="text-sm text-muted-foreground">{item.title}</p>
+              <p className="text-2xl font-bold">{formatValue(item.value)}</p>
+              {item.trend && (
+                <Badge variant="secondary" className="mt-1">
+                  <TrendingUp className="w-3 h-3 mr-1" />
+                  {item.trend}
+                </Badge>
+              )}
+            </div>
+          ))}
         </div>
-        <div class="card bg-base-100 shadow-lg">
-          <div class="card-body">
-            <h3 class="text-sm font-medium text-base-content/70">{{TITLE_2}}</h3>
-            <div class="text-3xl font-bold">{data.loading ? '...' : formatValue(data()?.summary?.{{VALUE_2}})}</div>
-            <div class="text-sm text-success">+{{TREND_2}}%</div>
-          </div>
-        </div>
-        <div class="card bg-base-100 shadow-lg">
-          <div class="card-body">
-            <h3 class="text-sm font-medium text-base-content/70">{{TITLE_3}}</h3>
-            <div class="text-3xl font-bold">{data.loading ? '...' : (data()?.summary?.{{VALUE_3}} || 0).toFixed(2)}</div>
-          </div>
-        </div>
-        <div class="card bg-base-100 shadow-lg">
-          <div class="card-body">
-            <h3 class="text-sm font-medium text-base-content/70">{{TITLE_4}}</h3>
-            <div class="text-3xl font-bold">{data.loading ? '...' : data()?.summary?.{{VALUE_4}}}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}"""
+      </CardContent>
+    </Card>
+  )
+}
+''',
 )
 
 
-# DataTable Template - Filterable, sortable table
+# DataTable Template - Filterable table using shadcn Table + Input
 DATA_TABLE_TEMPLATE = ComponentTemplate(
     name="DataTable",
     category="table",
     description="Filterable and sortable data table with search",
     tags=["table", "data", "filter", "sort", "search"],
     data_requirements=["data_array", "columns"],
-    code="""import { createSignal, createResource, For, Show } from 'solid-js';
+    code='''"use client"
 
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' }, data_mode: dataMode })
-  });
-  return response.json();
+import React, { useState, useMemo } from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
+
+interface Props {
+  data?: Record<string, unknown>[]
+  title?: string
 }
 
-export default function DataTable() {
-  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
-  const [filter, setFilter] = createSignal('');
-  const [sortField, setSortField] = createSignal('{{DEFAULT_SORT}}');
-  const [sortDir, setSortDir] = createSignal('asc');
-  
-  const filteredData = () => {
-    if (!apiData() || !apiData().{{DATA_ARRAY}}) return [];
-    const f = filter().toLowerCase();
-    let items = apiData().{{DATA_ARRAY}};
-    
-    if (f) {
-      items = items.filter(function(item) {
-        return JSON.stringify(item).toLowerCase().includes(f);
-      });
-    }
-    
-    const field = sortField();
-    const dir = sortDir();
-    return items.sort(function(a, b) {
-      if (a[field] < b[field]) return dir === 'asc' ? -1 : 1;
-      if (a[field] > b[field]) return dir === 'asc' ? 1 : -1;
-      return 0;
-    });
-  };
-  
-  const toggleSort = (field) => {
-    if (sortField() === field) {
-      setSortDir(sortDir() === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDir('asc');
-    }
-  };
-  
+const sampleData = [
+  { name: "Product A", category: "Electronics", price: 99, stock: 50 },
+  { name: "Product B", category: "Home", price: 149, stock: 30 },
+  { name: "Product C", category: "Sports", price: 79, stock: 100 },
+]
+
+export default function DataTable({ data = sampleData, title = "{{TABLE_TITLE}}" }: Props) {
+  const [filter, setFilter] = useState("")
+  const filtered = useMemo(() => {
+    if (!filter) return data
+    const f = filter.toLowerCase()
+    return data.filter((item) =>
+      JSON.stringify(item).toLowerCase().includes(f)
+    )
+  }, [data, filter])
+
   return (
-    <div class="p-6">
-      <div class="mb-4 flex justify-between items-center">
-        <h2 class="text-2xl font-bold">{{TABLE_TITLE}}</h2>
-        <input
-          type="text"
-          class="input input-bordered w-64"
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>{title}</CardTitle>
+        <Input
           placeholder="Search..."
-          value={filter()}
-          onInput={(e) => setFilter(e.target.value)}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="max-w-xs"
         />
-      </div>
-      <Show when={!apiData.loading} fallback={<div class="loading loading-spinner loading-lg"></div>}>
-        <div class="overflow-x-auto">
-          <table class="table table-zebra w-full">
-            <thead>
-              <tr>
-                {{TABLE_HEADERS}}
-              </tr>
-            </thead>
-            <tbody>
-              <For each={filteredData()}>
-                {function(item) {
-                  return (
-                    <tr>
-                      {{TABLE_CELLS}}
-                    </tr>
-                  );
-                }}
-              </For>
-            </tbody>
-          </table>
-        </div>
-        <div class="mt-4 text-sm text-base-content/70">
-          Showing {filteredData().length} items
-        </div>
-      </Show>
-    </div>
-  );
-}"""
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {{TABLE_HEADERS}}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.map((item, i) => (
+              <TableRow key={i}>
+                {{TABLE_CELLS}}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <p className="text-sm text-muted-foreground mt-4">
+          Showing {filtered.length} items
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+''',
 )
 
 
-# LineChart Template - Time series visualization (ApexCharts)
+# LineChart Template - Time series using Recharts LineChart
 LINE_CHART_TEMPLATE = ComponentTemplate(
     name="LineChart",
     category="chart",
     description="Time series line chart for trends",
     tags=["chart", "line", "timeseries", "trend"],
     data_requirements=["date_field", "value_field"],
-    code="""import { createResource, createEffect, onCleanup } from 'solid-js';
-import ApexCharts from 'apexcharts';
+    code='''"use client"
 
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium', days: 90 }, data_mode: dataMode })
-  });
-  return response.json();
+import React from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+
+interface DataPoint {
+  date: string
+  value: number
 }
 
-export default function LineChart() {
-  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
-  let chartRef;
-  let chartInstance;
+interface Props {
+  data?: DataPoint[]
+  title?: string
+}
 
-  createEffect(function() {
-    if (!apiData() || !apiData().metrics || !chartRef) return;
-    const metrics = apiData().metrics;
-    const options = {
-      chart: { type: 'line', toolbar: { show: false } },
-      stroke: { curve: 'smooth', width: 2 },
-      series: [{ name: '{{METRIC_LABEL}}', data: metrics.map(function(m) { return m.{{VALUE_FIELD}}; }) }],
-      xaxis: { categories: metrics.map(function(m) { return m.{{DATE_FIELD}}; }) },
-      yaxis: { min: 0 },
-      colors: ['#22c55e']
-    };
-    if (chartInstance) chartInstance.destroy();
-    chartInstance = new ApexCharts(chartRef, options);
-    chartInstance.render();
-  });
+const sampleData: DataPoint[] = [
+  { date: "2024-01", value: 4000 },
+  { date: "2024-02", value: 3000 },
+  { date: "2024-03", value: 5000 },
+  { date: "2024-04", value: 4500 },
+  { date: "2024-05", value: 6000 },
+]
 
-  onCleanup(function() {
-    if (chartInstance) chartInstance.destroy();
-  });
-
+export default function LineChartComponent({ data = sampleData, title = "{{CHART_TITLE}}" }: Props) {
   return (
-    <div class="p-6">
-      <h2 class="text-2xl font-bold mb-4">{{CHART_TITLE}}</h2>
-      <div ref={chartRef} style="height: 400px;"></div>
-    </div>
-  );
-}"""
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Line type="monotone" dataKey="value" stroke="hsl(var(--chart-1))" strokeWidth={2} />
+          </LineChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  )
+}
+''',
 )
 
 
-# BarChart Template - Comparison visualization (ApexCharts)
+# BarChart Template - Recharts BarChart
 BAR_CHART_TEMPLATE = ComponentTemplate(
     name="BarChart",
     category="chart",
     description="Bar chart for comparisons",
     tags=["chart", "bar", "comparison"],
     data_requirements=["category_field", "value_field"],
-    code="""import { createResource, createEffect, onCleanup } from 'solid-js';
-import ApexCharts from 'apexcharts';
+    code='''"use client"
 
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' }, data_mode: dataMode })
-  });
-  return response.json();
+import React from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+
+interface DataPoint {
+  name: string
+  value: number
 }
 
-export default function BarChart() {
-  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
-  let chartRef;
-  let chartInstance;
+interface Props {
+  data?: DataPoint[]
+  title?: string
+}
 
-  createEffect(function() {
-    if (!apiData() || !apiData().{{DATA_ARRAY}} || !chartRef) return;
-    const items = apiData().{{DATA_ARRAY}}.slice(0, 10);
-    const options = {
-      chart: { type: 'bar', toolbar: { show: false } },
-      plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
-      series: [{ name: '{{VALUE_LABEL}}', data: items.map(function(item) { return item.{{VALUE_FIELD}}; }) }],
-      xaxis: { categories: items.map(function(item) { return item.{{CATEGORY_FIELD}}; }) },
-      yaxis: { min: 0 },
-      colors: ['#3b82f6']
-    };
-    if (chartInstance) chartInstance.destroy();
-    chartInstance = new ApexCharts(chartRef, options);
-    chartInstance.render();
-  });
+const sampleData: DataPoint[] = [
+  { name: "A", value: 4000 },
+  { name: "B", value: 3000 },
+  { name: "C", value: 5000 },
+  { name: "D", value: 4500 },
+]
 
-  onCleanup(function() {
-    if (chartInstance) chartInstance.destroy();
-  });
-
+export default function BarChartComponent({ data = sampleData, title = "{{CHART_TITLE}}" }: Props) {
   return (
-    <div class="p-6">
-      <h2 class="text-2xl font-bold mb-4">{{CHART_TITLE}}</h2>
-      <div ref={chartRef} style="height: 400px;"></div>
-    </div>
-  );
-}"""
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="name" />
+            <YAxis />
+            <Tooltip />
+            <Bar dataKey="value" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  )
+}
+''',
 )
 
 
-# ListWithSearch Template - Searchable list with categories
+# PieChart Template - Replaces DonutChart
+PIE_CHART_TEMPLATE = ComponentTemplate(
+    name="PieChart",
+    category="chart",
+    description="Pie chart for category breakdown",
+    tags=["chart", "pie", "breakdown", "distribution"],
+    data_requirements=["labels_field", "value_field"],
+    code='''"use client"
+
+import React from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from "recharts"
+
+interface DataPoint {
+  name: string
+  value: number
+}
+
+interface Props {
+  data?: DataPoint[]
+  title?: string
+}
+
+const sampleData: DataPoint[] = [
+  { name: "Cat A", value: 400 },
+  { name: "Cat B", value: 300 },
+  { name: "Cat C", value: 300 },
+  { name: "Cat D", value: 200 },
+]
+
+const COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))"]
+
+export default function PieChartComponent({ data = sampleData, title = "{{CHART_TITLE}}" }: Props) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={300}>
+          <PieChart>
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              labelLine={false}
+              outerRadius={100}
+              fill="hsl(var(--chart-1))"
+              dataKey="value"
+            >
+              {data.map((_, i) => (
+                <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  )
+}
+''',
+)
+
+
+# AreaChart Template - Replaces HeatmapChart
+AREA_CHART_TEMPLATE = ComponentTemplate(
+    name="AreaChart",
+    category="chart",
+    description="Area chart for cumulative values",
+    tags=["chart", "area", "cumulative", "intensity"],
+    data_requirements=["date_field", "value_field"],
+    code='''"use client"
+
+import React from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+
+interface DataPoint {
+  date: string
+  value: number
+}
+
+interface Props {
+  data?: DataPoint[]
+  title?: string
+}
+
+const sampleData: DataPoint[] = [
+  { date: "Jan", value: 4000 },
+  { date: "Feb", value: 3000 },
+  { date: "Mar", value: 5000 },
+  { date: "Apr", value: 4500 },
+  { date: "May", value: 6000 },
+]
+
+export default function AreaChartComponent({ data = sampleData, title = "{{CHART_TITLE}}" }: Props) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={300}>
+          <AreaChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Area type="monotone" dataKey="value" stroke="hsl(var(--chart-1))" fill="hsl(var(--chart-1))" fillOpacity={0.3} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  )
+}
+''',
+)
+
+
+# ComposedChart Template - Replaces MixedChart
+COMPOSED_CHART_TEMPLATE = ComponentTemplate(
+    name="ComposedChart",
+    category="chart",
+    description="Combined line and bar chart",
+    tags=["chart", "mixed", "line", "bar", "comparison"],
+    data_requirements=["date_field", "line_field", "bar_field"],
+    code='''"use client"
+
+import React from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
+
+interface DataPoint {
+  date: string
+  lineValue: number
+  barValue: number
+}
+
+interface Props {
+  data?: DataPoint[]
+  title?: string
+}
+
+const sampleData: DataPoint[] = [
+  { date: "Jan", lineValue: 4000, barValue: 2400 },
+  { date: "Feb", lineValue: 3000, barValue: 1398 },
+  { date: "Mar", lineValue: 5000, barValue: 3800 },
+  { date: "Apr", lineValue: 4500, barValue: 3908 },
+]
+
+export default function ComposedChartComponent({ data = sampleData, title = "{{CHART_TITLE}}" }: Props) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={300}>
+          <ComposedChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="barValue" fill="hsl(var(--chart-1))" name="{{BAR_LABEL}}" />
+            <Line type="monotone" dataKey="lineValue" stroke="hsl(var(--chart-2))" name="{{LINE_LABEL}}" />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  )
+}
+''',
+)
+
+
+# ListWithSearch Template - Card + Input + ScrollArea
 LIST_WITH_SEARCH_TEMPLATE = ComponentTemplate(
     name="ListWithSearch",
     category="list",
     description="Searchable list with categories and badges",
     tags=["list", "search", "filter", "category"],
     data_requirements=["items_array", "name_field", "category_field"],
-    code="""import { createSignal, createResource, For, Show } from 'solid-js';
+    code='''"use client"
 
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' }, data_mode: dataMode })
-  });
-  return response.json();
+import React, { useState, useMemo } from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { ScrollArea } from "@/components/ui/scroll-area"
+
+interface ListItem {
+  name: string
+  category: string
+  price?: number
+  stock?: number
 }
 
-export default function ListWithSearch() {
-  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
-  const [filter, setFilter] = createSignal('');
-  const [categoryFilter, setCategoryFilter] = createSignal('all');
-  
-  const categories = () => {
-    if (!apiData() || !apiData().{{ITEMS_ARRAY}}) return [];
-    const cats = new Set();
-    apiData().{{ITEMS_ARRAY}}.forEach(function(item) {
-      cats.add(item.{{CATEGORY_FIELD}});
-    });
-    return Array.from(cats);
-  };
-  
-  const filteredItems = () => {
-    if (!apiData() || !apiData().{{ITEMS_ARRAY}}) return [];
-    const f = filter().toLowerCase();
-    const cat = categoryFilter();
-    
-    return apiData().{{ITEMS_ARRAY}}.filter(function(item) {
-      const matchesSearch = !f || item.{{NAME_FIELD}}.toLowerCase().includes(f);
-      const matchesCategory = cat === 'all' || item.{{CATEGORY_FIELD}} === cat;
-      return matchesSearch && matchesCategory;
-    });
-  };
-  
+interface Props {
+  data?: ListItem[]
+  title?: string
+}
+
+const sampleData: ListItem[] = [
+  { name: "Product A", category: "Electronics", price: 99, stock: 50 },
+  { name: "Product B", category: "Home", price: 149, stock: 30 },
+  { name: "Product C", category: "Sports", price: 79, stock: 100 },
+]
+
+export default function ListWithSearch({ data = sampleData, title = "{{LIST_TITLE}}" }: Props) {
+  const [filter, setFilter] = useState("")
+  const filtered = useMemo(() => {
+    if (!filter) return data
+    const f = filter.toLowerCase()
+    return data.filter(
+      (item) =>
+        item.name.toLowerCase().includes(f) ||
+        item.category.toLowerCase().includes(f)
+    )
+  }, [data, filter])
+
   return (
-    <div class="p-6">
-      <h2 class="text-2xl font-bold mb-4">{{LIST_TITLE}}</h2>
-      
-      <div class="mb-4 flex gap-4">
-        <input
-          type="text"
-          class="input input-bordered flex-1"
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <Input
           placeholder="Search..."
-          value={filter()}
-          onInput={(e) => setFilter(e.target.value)}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="max-w-xs"
         />
-        <select
-          class="select select-bordered w-48"
-          value={categoryFilter()}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-        >
-          <option value="all">All Categories</option>
-          <For each={categories()}>
-            {function(cat) {
-              return <option value={cat}>{cat}</option>;
-            }}
-          </For>
-        </select>
-      </div>
-      
-      <Show when={!apiData.loading} fallback={<div class="loading loading-spinner loading-lg"></div>}>
-        <div class="grid gap-4">
-          <For each={filteredItems()}>
-            {function(item) {
-              return (
-                <div class="card bg-base-100 shadow">
-                  <div class="card-body p-4">
-                    <div class="flex justify-between items-start">
-                      <div>
-                        <h3 class="font-semibold text-lg">{item.{{NAME_FIELD}}}</h3>
-                        {{ITEM_DETAILS}}
-                      </div>
-                      <span class="badge badge-secondary">{item.{{CATEGORY_FIELD}}}</span>
-                    </div>
-                  </div>
+      </CardHeader>
+      <CardContent>
+        <ScrollArea className="h-[400px]">
+          <div className="grid gap-4">
+            {filtered.map((item, i) => (
+              <div key={i} className="flex justify-between items-center p-4 border rounded-lg">
+                <div>
+                  <h3 className="font-semibold">{item.name}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {item.price ? `$${item.price}` : ""} {item.stock ? `- ${item.stock} in stock` : ""}
+                  </p>
                 </div>
-              );
-            }}
-          </For>
-        </div>
-        <div class="mt-4 text-sm text-base-content/70">
-          Showing {filteredItems().length} of {apiData().{{ITEMS_ARRAY}}.length} items
-        </div>
-      </Show>
-    </div>
-  );
-}"""
+                <Badge variant="secondary">{item.category}</Badge>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+        <p className="text-sm text-muted-foreground mt-4">
+          Showing {filtered.length} of {data.length} items
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+''',
 )
 
 
-# MetricsDashboard Template - Multi-stat overview (ApexCharts)
+# MetricsDashboard Template - Multi-metric dashboard
 METRICS_DASHBOARD_TEMPLATE = ComponentTemplate(
     name="MetricsDashboard",
     category="dashboard",
     description="Multi-metric dashboard with cards and chart",
     tags=["dashboard", "metrics", "kpi", "overview"],
     data_requirements=["metrics", "summary"],
-    code="""import { createResource, createEffect, onCleanup, For, Show } from 'solid-js';
-import ApexCharts from 'apexcharts';
+    code='''"use client"
 
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'large', days: 90 }, data_mode: dataMode })
-  });
-  return response.json();
+import React from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { Badge } from "@/components/ui/badge"
+
+interface DataPoint {
+  date: string
+  value: number
 }
 
-export default function MetricsDashboard() {
-  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
-  let chartRef;
-  let chartInstance;
+interface Summary {
+  total_revenue?: number
+  total_orders?: number
+  mrr?: number
+  arr?: number
+}
 
-  const formatCurrency = (val) => {
-    if (val > 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
-    if (val > 1000) return '$' + (val / 1000).toFixed(1) + 'K';
-    return '$' + val.toFixed(0);
-  };
+interface Props {
+  metrics?: DataPoint[]
+  summary?: Summary
+  title?: string
+}
 
-  createEffect(function() {
-    if (!apiData() || !apiData().metrics || !chartRef) return;
-    const metrics = apiData().metrics.slice(-30);
-    const options = {
-      chart: { type: 'area', toolbar: { show: false } },
-      stroke: { curve: 'smooth', width: 2 },
-      fill: { type: 'gradient', gradient: { opacityFrom: 0.6, opacityTo: 0.1 } },
-      series: [{ name: '{{CHART_METRIC}}', data: metrics.map(function(m) { return m.{{CHART_VALUE}}; }) }],
-      xaxis: { categories: metrics.map(function(m) { return m.date; }) },
-      yaxis: { min: 0 },
-      colors: ['#22c55e']
-    };
-    if (chartInstance) chartInstance.destroy();
-    chartInstance = new ApexCharts(chartRef, options);
-    chartInstance.render();
-  });
+const sampleMetrics: DataPoint[] = [
+  { date: "Jan", value: 4000 },
+  { date: "Feb", value: 3000 },
+  { date: "Mar", value: 5000 },
+  { date: "Apr", value: 4500 },
+  { date: "May", value: 6000 },
+]
 
-  onCleanup(function() {
-    if (chartInstance) chartInstance.destroy();
-  });
+const sampleSummary: Summary = { total_revenue: 27000, total_orders: 342 }
 
+const formatCurrency = (val: number) => {
+  if (val > 1000000) return "$" + (val / 1000000).toFixed(1) + "M"
+  if (val > 1000) return "$" + (val / 1000).toFixed(1) + "K"
+  return "$" + val.toFixed(0)
+}
+
+export default function MetricsDashboard({
+  metrics = sampleMetrics,
+  summary = sampleSummary,
+  title = "{{DASHBOARD_TITLE}}",
+}: Props) {
   return (
-    <div class="p-6">
-      <h1 class="text-3xl font-bold mb-6">{{DASHBOARD_TITLE}}</h1>
-      
-      <Show when={!apiData.loading} fallback={<div class="loading loading-spinner loading-lg"></div>}>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {{STAT_CARDS}}
-        </div>
-        
-        <div class="card bg-base-100 shadow-lg mb-6">
-          <div class="card-body">
-            <h2 class="card-title">Trend Over Time</h2>
-            <div ref={chartRef} style="height: 300px;"></div>
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="p-4 border rounded-lg">
+            <p className="text-sm text-muted-foreground">Revenue</p>
+            <p className="text-2xl font-bold">
+              {formatCurrency(summary.total_revenue ?? 0)}
+            </p>
+          </div>
+          <div className="p-4 border rounded-lg">
+            <p className="text-sm text-muted-foreground">Orders</p>
+            <p className="text-2xl font-bold">{summary.total_orders ?? 0}</p>
+          </div>
+          <div className="p-4 border rounded-lg">
+            <p className="text-sm text-muted-foreground">MRR</p>
+            <p className="text-2xl font-bold">{formatCurrency(summary.mrr ?? 0)}</p>
+          </div>
+          <div className="p-4 border rounded-lg">
+            <p className="text-sm text-muted-foreground">ARR</p>
+            <p className="text-2xl font-bold">{formatCurrency(summary.arr ?? 0)}</p>
           </div>
         </div>
-        
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="card bg-base-100 shadow-lg">
-            <div class="card-body">
-              <h2 class="card-title">Recent Activity</h2>
-              {{RECENT_ITEMS}}
-            </div>
-          </div>
-          <div class="card bg-base-100 shadow-lg">
-            <div class="card-body">
-              <h2 class="card-title">Summary</h2>
-              {{SUMMARY_ITEMS}}
-            </div>
-          </div>
+        <div>
+          <h3 className="font-semibold mb-4">Trend Over Time</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <AreaChart data={metrics}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" />
+              <YAxis />
+              <Tooltip />
+              <Area type="monotone" dataKey="value" stroke="hsl(var(--chart-1))" fill="hsl(var(--chart-1))" fillOpacity={0.3} />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
-      </Show>
-    </div>
-  );
-}"""
-)
-
-
-# DonutChart Template - Category breakdown
-DONUT_CHART_TEMPLATE = ComponentTemplate(
-    name="DonutChart",
-    category="chart",
-    description="Donut chart for category breakdown",
-    tags=["chart", "donut", "pie", "breakdown", "distribution"],
-    data_requirements=["labels_field", "value_field"],
-    code="""import { createResource, createEffect, onCleanup } from 'solid-js';
-import ApexCharts from 'apexcharts';
-
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium' }, data_mode: dataMode })
-  });
-  return response.json();
+      </CardContent>
+    </Card>
+  )
 }
-
-export default function DonutChart() {
-  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
-  let chartRef;
-  let chartInstance;
-
-  createEffect(function() {
-    if (!apiData() || !apiData().{{DATA_ARRAY}} || !chartRef) return;
-    const items = apiData().{{DATA_ARRAY}}.slice(0, 8);
-    const labels = items.map(function(item) { return item.{{CATEGORY_FIELD}}; });
-    const values = items.map(function(item) { return item.{{VALUE_FIELD}}; });
-    const options = {
-      chart: { type: 'donut' },
-      labels: labels,
-      series: values,
-      legend: { position: 'right' },
-      colors: ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
-    };
-    if (chartInstance) chartInstance.destroy();
-    chartInstance = new ApexCharts(chartRef, options);
-    chartInstance.render();
-  });
-
-  onCleanup(function() {
-    if (chartInstance) chartInstance.destroy();
-  });
-
-  return (
-    <div class="p-6">
-      <h2 class="text-2xl font-bold mb-4">{{CHART_TITLE}}</h2>
-      <div ref={chartRef} style="height: 400px;"></div>
-    </div>
-  );
-}"""
-)
-
-
-# HeatmapChart Template - Time-series intensity
-HEATMAP_CHART_TEMPLATE = ComponentTemplate(
-    name="HeatmapChart",
-    category="chart",
-    description="Heatmap for time-series intensity visualization",
-    tags=["chart", "heatmap", "intensity", "activity"],
-    data_requirements=["date_field", "value_field"],
-    code="""import { createResource, createEffect, onCleanup } from 'solid-js';
-import ApexCharts from 'apexcharts';
-
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium', days: 90 }, data_mode: dataMode })
-  });
-  return response.json();
-}
-
-export default function HeatmapChart() {
-  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
-  let chartRef;
-  let chartInstance;
-
-  createEffect(function() {
-    if (!apiData() || !apiData().metrics || !chartRef) return;
-    const metrics = apiData().metrics;
-    const data = metrics.map(function(m) {
-      return {
-        x: m.{{DATE_FIELD}},
-        y: m.{{VALUE_FIELD}}
-      };
-    });
-    const options = {
-      chart: { type: 'heatmap', toolbar: { show: false } },
-      dataLabels: { enabled: false },
-      plotOptions: {
-        heatmap: {
-          shadeIntensity: 0.5,
-          colorScale: {
-            ranges: [
-              { from: 0, to: 100, color: '#dcfce7' },
-              { from: 100, to: 500, color: '#86efac' },
-              { from: 500, to: 10000, color: '#22c55e' }
-            ]
-          }
-        }
-      },
-      series: [{ name: '{{METRIC_LABEL}}', data: data }]
-    };
-    if (chartInstance) chartInstance.destroy();
-    chartInstance = new ApexCharts(chartRef, options);
-    chartInstance.render();
-  });
-
-  onCleanup(function() {
-    if (chartInstance) chartInstance.destroy();
-  });
-
-  return (
-    <div class="p-6">
-      <h2 class="text-2xl font-bold mb-4">{{CHART_TITLE}}</h2>
-      <div ref={chartRef} style="height: 400px;"></div>
-    </div>
-  );
-}"""
-)
-
-
-# MixedChart Template - Line + Bar combined
-MIXED_CHART_TEMPLATE = ComponentTemplate(
-    name="MixedChart",
-    category="chart",
-    description="Combined line and bar chart",
-    tags=["chart", "mixed", "line", "bar", "comparison"],
-    data_requirements=["date_field", "line_field", "bar_field"],
-    code="""import { createResource, createEffect, onCleanup } from 'solid-js';
-import ApexCharts from 'apexcharts';
-
-async function fetchData() {
-  const dataMode = window.__DATA_MODE || 'sample';
-  const response = await fetch('/api/components/' + window.__COMPONENT_ID + '/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mock: { profile: '{{PROFILE}}', scale: 'medium', days: 90 }, data_mode: dataMode })
-  });
-  return response.json();
-}
-
-export default function MixedChart() {
-  const [apiData] = createResource(function() {{ return window.__DATA_MODE || 'sample'; }}, fetchData);
-  let chartRef;
-  let chartInstance;
-
-  createEffect(function() {
-    if (!apiData() || !apiData().metrics || !chartRef) return;
-    const metrics = apiData().metrics;
-    const categories = metrics.map(function(m) { return m.{{DATE_FIELD}}; });
-    const options = {
-      chart: { type: 'line', toolbar: { show: false } },
-      stroke: { width: [2, 0] },
-      plotOptions: { bar: { columnWidth: '50%' } },
-      series: [
-        { name: '{{LINE_LABEL}}', type: 'line', data: metrics.map(function(m) { return m.{{LINE_FIELD}}; }) },
-        { name: '{{BAR_LABEL}}', type: 'column', data: metrics.map(function(m) { return m.{{BAR_FIELD}}; }) }
-      ],
-      xaxis: { categories: categories },
-      yaxis: [{ min: 0 }, { opposite: true, min: 0 }],
-      tooltip: { shared: true },
-      colors: ['#22c55e', '#3b82f6']
-    };
-    if (chartInstance) chartInstance.destroy();
-    chartInstance = new ApexCharts(chartRef, options);
-    chartInstance.render();
-  });
-
-  onCleanup(function() {
-    if (chartInstance) chartInstance.destroy();
-  });
-
-  return (
-    <div class="p-6">
-      <h2 class="text-2xl font-bold mb-4">{{CHART_TITLE}}</h2>
-      <div ref={chartRef} style="height: 400px;"></div>
-    </div>
-  );
-}"""
+''',
 )
 
 
@@ -672,11 +633,11 @@ COMPONENT_TEMPLATES: Dict[str, ComponentTemplate] = {
     "DataTable": DATA_TABLE_TEMPLATE,
     "LineChart": LINE_CHART_TEMPLATE,
     "BarChart": BAR_CHART_TEMPLATE,
+    "PieChart": PIE_CHART_TEMPLATE,
+    "AreaChart": AREA_CHART_TEMPLATE,
+    "ComposedChart": COMPOSED_CHART_TEMPLATE,
     "ListWithSearch": LIST_WITH_SEARCH_TEMPLATE,
     "MetricsDashboard": METRICS_DASHBOARD_TEMPLATE,
-    "DonutChart": DONUT_CHART_TEMPLATE,
-    "HeatmapChart": HEATMAP_CHART_TEMPLATE,
-    "MixedChart": MIXED_CHART_TEMPLATE,
 }
 
 
@@ -685,15 +646,16 @@ def get_template_by_name(name: str) -> Optional[ComponentTemplate]:
     return COMPONENT_TEMPLATES.get(name)
 
 
-def list_templates(category: Optional[str] = None, tags: Optional[List[str]] = None) -> List[ComponentTemplate]:
+def list_templates(
+    category: Optional[str] = None, tags: Optional[List[str]] = None
+) -> List[ComponentTemplate]:
     """List templates, optionally filtered by category or tags."""
     templates = list(COMPONENT_TEMPLATES.values())
-    
+
     if category:
         templates = [t for t in templates if t.category == category]
-    
+
     if tags:
         templates = [t for t in templates if any(tag in t.tags for tag in tags)]
-    
-    return templates
 
+    return templates
