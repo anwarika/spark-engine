@@ -4,7 +4,7 @@
 
 Generate Solid.js micro-apps from natural language. Connect your AI agent—Spark handles generation, validation, compilation, and serving.
 
-[![Version](https://img.shields.io/badge/version-3.1.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.2.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-AGPLv3-green.svg)](LICENSE)
 
 ---

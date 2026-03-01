@@ -204,9 +204,11 @@ async def chat_message(message: ChatMessage, request: Request):
         timing_breakdown["db_save_message_ms"] = round((time.time() - db_message_start) * 1000, 2)
         timing_breakdown["total_ms"] = round((time.time() - request_start_time) * 1000, 2)
 
+        # In iteration mode, return description only — not the raw code
+        display_content = llm_response.reasoning if message.component_id else llm_response.content
         return ChatResponse(
             type=llm_response.type,
-            content=llm_response.content,
+            content=display_content,
             component_id=component_id,
             reasoning=llm_response.reasoning,
         )
@@ -661,9 +663,11 @@ async def chat_message_stream(message: ChatMessage, request: Request):
             yield _sse("progress", {"step": "db_save_message", "status": "done", "ms": timing_breakdown["db_save_message_ms"]})
 
             timing_breakdown["total_ms"] = round((time.time() - request_start_time) * 1000, 2)
+            # In iteration mode, show description only — not the raw code
+            display_content = llm_response.reasoning if parent_component_id else llm_response.content
             yield _sse("done", {
                 "type": llm_response.type,
-                "content": llm_response.content,
+                "content": display_content,
                 "component_id": component_id,
                 "reasoning": llm_response.reasoning,
                 "timing": timing_breakdown
