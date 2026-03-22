@@ -5,6 +5,31 @@ All notable changes to Spark will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-03-01
+
+### Added
+
+- **Studio Mode iteration** — Multi-turn microapp editing (bolt.new-style)
+  - "Iterate" button on each microapp opens full-screen split-panel studio
+  - Left: live iframe preview; right: scoped iteration chat
+  - Each edit creates a new component with `parent_component_id` lineage
+  - Revert/undo: "↩ Revert" button in header and per-message revert links
+- **ChatMessage.component_id** — Request body field to iterate on an existing component
+- **A2AGenerateRequest.component_id** — A2A callers can pass component ID to edit instead of create
+- **Hallucination mitigation** (5-layer defence):
+  1. Data schema injected into every edit prompt
+  2. temperature=0.15 for edit generation (deterministic)
+  3. Fields already used in existing code anchored as safe hints
+  4. Auto-retry (up to 2 attempts) with validation/compile error fed back
+  5. CodeValidator schema field contract — rejects hallucinated `apiData().X` fields before iframe renders
+- **LLMService.generate_edit_response()** — Edit-focused system prompt with modern layout guidance
+
+### Changed
+
+- Iteration chat response shows description only (reasoning) instead of raw code
+- `microapp_ready` SSE event gains `parent_component_id` for in-place iframe updates
+- Studio loading UI matches main chat step-by-step badge tracker
+
 ## [3.1.0] - 2026-03-01
 
 ### Added

@@ -35,6 +35,7 @@ class ChatMessage(BaseModel):
     tenant_id: str
     user_id: str
     message: str
+    component_id: Optional[str] = None  # When set, iterate on existing component
 
 
 class ChatResponse(BaseModel):

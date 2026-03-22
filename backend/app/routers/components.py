@@ -123,9 +123,9 @@ async def get_component_iframe(component_id: str, request: Request):
   <script type="importmap">
   {{
     "imports": {{
-      "solid-js": "https://esm.sh/solid-js@1.8.7",
-      "solid-js/web": "https://esm.sh/solid-js@1.8.7/web",
-      "solid-js/store": "https://esm.sh/solid-js@1.8.7/store",
+      "solid-js": "https://cdn.jsdelivr.net/npm/solid-js@1.8.7/dist/solid.js",
+      "solid-js/web": "https://cdn.jsdelivr.net/npm/solid-js@1.8.7/web/dist/web.js",
+      "solid-js/store": "https://cdn.jsdelivr.net/npm/solid-js@1.8.7/store/dist/store.js",
       "apexcharts": "https://cdn.jsdelivr.net/npm/apexcharts@3.54.1/dist/apexcharts.esm.js"
     }}
   }}

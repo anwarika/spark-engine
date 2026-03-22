@@ -23,15 +23,17 @@ validator = CodeValidator()
 
 class A2AGenerateRequest(BaseModel):
     prompt: str
+    component_id: Optional[str] = None  # When set, iterate on existing component
     data_context: Optional[Dict[str, Any]] = None  # The actual data or schema
     style_context: Optional[Dict[str, Any]] = None
     llm_config: Optional[LLMConfig] = None  # Per-request LLM override
 
 class A2AResponse(BaseModel):
-    status: str # "success", "needs_info", "error"
+    status: str  # "success", "needs_info", "error"
     microapp_url: Optional[str] = None
     component_id: Optional[str] = None
-    missing_info: Optional[Dict[str, Any]] = None # Schema of missing data
+    parent_component_id: Optional[str] = None  # Present when iterating
+    missing_info: Optional[Dict[str, Any]] = None
     message: Optional[str] = None
 
 @router.post("/generate", response_model=A2AResponse)
@@ -39,7 +41,59 @@ async def generate_microapp(request: Request, body: A2AGenerateRequest):
     tenant_id = get_tenant_id(request)
     user_id = get_user_id(request)
     storage = get_storage()
-    
+
+    # Iteration mode: component_id provided, edit existing component
+    if body.component_id:
+        parent_id = body.component_id
+        existing_component = await storage.get_component(parent_id, tenant_id)
+        if not existing_component:
+            return A2AResponse(status="error", message="Component not found for iteration")
+
+        response = await llm_service.generate_edit_response(
+            body.prompt,
+            existing_component["solidjs_code"],
+            llm_config=body.llm_config,
+        )
+        if response.type != "component":
+            return A2AResponse(status="error", message=response.content)
+
+        code_hash = ComponentCompiler.compute_hash(response.content)
+        compilation_result = await compiler.compile(response.content, code_hash)
+        if not compilation_result.success:
+            return A2AResponse(status="error", message=f"Compilation failed: {compilation_result.error}")
+
+        component_name = f"A2A-Iter-{datetime.datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+        description = json.dumps({"prompt": body.prompt, "source": "a2a", "parent_component_id": parent_id})
+        generation_metadata = json.dumps({"parent_component_id": parent_id, "source": "a2a_iteration"})
+
+        try:
+            component_id = await storage.create_component({
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "name": component_name,
+                "description": description,
+                "solidjs_code": response.content,
+                "code_hash": code_hash,
+                "generation_metadata": generation_metadata,
+                "validated": True,
+                "compiled": True,
+                "compiled_bundle": compilation_result.bundle,
+                "bundle_size_bytes": compilation_result.bundle_size,
+                "status": "active"
+            })
+        except Exception as e:
+            logger.error(f"Failed to save component: {e}")
+            return A2AResponse(status="error", message="Failed to save component")
+
+        base = str(request.base_url).rstrip("/")
+        render_url = f"{base}/api/components/{component_id}/iframe"
+        return A2AResponse(
+            status="success",
+            component_id=component_id,
+            parent_component_id=parent_id,
+            microapp_url=render_url
+        )
+
     # 1. Fetch Registry Context
     registry_context = await registry_service.get_registry_context(tenant_id)
     
