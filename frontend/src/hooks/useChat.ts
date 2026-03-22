@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useChatStore } from '../store/chatStore';
 import { chatAPI } from '../services/api';
 
 type StreamEvent =
   | { event: 'progress'; data: { step: string; status: 'start' | 'done' | 'error'; ms?: number } }
-  | { event: 'microapp_ready'; data: { component_id?: string } }
+  | { event: 'microapp_ready'; data: { component_id?: string; parent_component_id?: string } }
   | { event: 'done'; data: { type: 'text' | 'component'; content: string; component_id?: string; reasoning?: string; timing?: Record<string, number> } }
   | { event: 'error'; data: { message: string } };
 
@@ -73,19 +73,25 @@ async function consumeSSE(
 export const useChat = () => {
   const {
     sessionId,
+    activeComponentId,
     addMessage,
     updateMessage,
     setLoading,
     setError,
+    setActiveComponentId,
     isLoading,
     initGeneration,
     updateGenerationStep,
     clearGeneration
   } = useChatStore();
   const [retrying, setRetrying] = useState(false);
+  /** True when this stream is an iteration — assistant bubble stays text-only; parent bubble gets iframe swap */
+  const iterationRef = useRef(false);
 
   const sendMessage = async (message: string) => {
     if (!message.trim() || isLoading) return;
+
+    iterationRef.current = false;
 
     addMessage({
       role: 'user',
@@ -101,8 +107,18 @@ export const useChat = () => {
       content: 'Building your microapp…'
     });
 
+    const iteratingFrom = activeComponentId;
+    const body: Record<string, string> = {
+      session_id: sessionId,
+      tenant_id: 'default-tenant',
+      user_id: 'default-user',
+      message
+    };
+    if (iteratingFrom) {
+      body.component_id = iteratingFrom;
+    }
+
     try {
-      // Prefer streaming endpoint for progress UX
       const streamResp = await fetch('/api/chat/message/stream', {
         method: 'POST',
         headers: {
@@ -110,12 +126,7 @@ export const useChat = () => {
           'X-Tenant-ID': 'default-tenant',
           'X-User-ID': 'default-user'
         },
-        body: JSON.stringify({
-          session_id: sessionId,
-          tenant_id: 'default-tenant',
-          user_id: 'default-user',
-          message
-        })
+        body: JSON.stringify(body)
       });
 
       if (!streamResp.ok) {
@@ -128,22 +139,40 @@ export const useChat = () => {
           if (status === 'start') updateGenerationStep(step, 'active');
           if (status === 'done') updateGenerationStep(step, 'done', ms);
           if (status === 'error') updateGenerationStep(step, 'error', ms);
-          // Opportunistically reflect current step in the assistant placeholder
           updateMessage(assistantMessageId, { content: `Building your microapp… (${stepLabel(step)})` });
         }
 
         if (evt.event === 'microapp_ready') {
-          if (evt.data.component_id) {
-            updateMessage(assistantMessageId, { componentId: evt.data.component_id });
+          const { component_id: cid, parent_component_id: parentId } = evt.data;
+          if (cid) {
+            setActiveComponentId(cid);
+          }
+          if (parentId && cid) {
+            iterationRef.current = true;
+            const parentMsg = useChatStore.getState().messages.find(
+              (m) => m.componentId === parentId
+            );
+            if (parentMsg) {
+              updateMessage(parentMsg.id, { componentId: cid });
+            }
+          } else if (cid) {
+            updateMessage(assistantMessageId, { componentId: cid });
           }
         }
 
         if (evt.event === 'done') {
-          updateMessage(assistantMessageId, {
+          const patch: {
+            content: string;
+            componentId?: string;
+            reasoning?: string;
+          } = {
             content: evt.data.content,
-            componentId: evt.data.component_id,
             reasoning: evt.data.reasoning
-          });
+          };
+          if (!iterationRef.current && evt.data.component_id) {
+            patch.componentId = evt.data.component_id;
+          }
+          updateMessage(assistantMessageId, patch);
         }
 
         if (evt.event === 'error') {
@@ -151,14 +180,31 @@ export const useChat = () => {
         }
       });
     } catch (error) {
-      // Fallback to non-streaming endpoint if streaming fails
       try {
-        const response = await chatAPI.sendMessage(sessionId, message);
-        updateMessage(assistantMessageId, {
-          content: response.content,
-          componentId: response.component_id,
-          reasoning: response.reasoning
-        });
+        const response = await chatAPI.sendMessage(sessionId, message, iteratingFrom ?? undefined);
+        const cid = response.component_id ? String(response.component_id) : undefined;
+        if (iteratingFrom && cid) {
+          const parentMsg = useChatStore.getState().messages.find(
+            (m) => m.componentId === iteratingFrom
+          );
+          if (parentMsg) {
+            updateMessage(parentMsg.id, { componentId: cid });
+          }
+          setActiveComponentId(cid);
+          updateMessage(assistantMessageId, {
+            content: response.content,
+            reasoning: response.reasoning
+          });
+        } else {
+          updateMessage(assistantMessageId, {
+            content: response.content,
+            componentId: cid,
+            reasoning: response.reasoning
+          });
+          if (cid) {
+            setActiveComponentId(cid);
+          }
+        }
         return;
       } catch (fallbackError) {
         const errorMessage =

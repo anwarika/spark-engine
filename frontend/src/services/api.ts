@@ -11,13 +11,21 @@ const api = axios.create({
 });
 
 export const chatAPI = {
-  sendMessage: async (sessionId: string, message: string): Promise<ChatResponse> => {
-    const response = await api.post('/chat/message', {
+  sendMessage: async (
+    sessionId: string,
+    message: string,
+    componentId?: string
+  ): Promise<ChatResponse> => {
+    const body: Record<string, string> = {
       session_id: sessionId,
       tenant_id: 'default-tenant',
       user_id: 'default-user',
       message
-    });
+    };
+    if (componentId) {
+      body.component_id = componentId;
+    }
+    const response = await api.post('/chat/message', body);
     return response.data;
   }
 };

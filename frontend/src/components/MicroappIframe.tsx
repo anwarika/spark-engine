@@ -84,6 +84,7 @@ export const MicroappIframe: React.FC<MicroappIframeProps> = ({
                     </div>
                 </div>
                 <iframe
+                    key={componentId}
                     ref={iframeRef}
                     src={iframeUrl}
                     style={{ height: `${iframeHeight}px` }}

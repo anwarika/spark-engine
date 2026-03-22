@@ -20,6 +20,8 @@ interface ChatState {
   currentStudioComponentId: string | null;
   // Iteration history stack — newest at end. Enables revert.
   studioHistory: string[];
+  /** Latest microapp id — next main-chat message sends this as component_id for iteration */
+  activeComponentId: string | null;
   addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => string;
   updateMessage: (id: string, patch: Partial<Omit<Message, 'id' | 'timestamp'>>) => void;
   setLoading: (loading: boolean) => void;
@@ -33,6 +35,7 @@ interface ChatState {
   setCurrentStudioComponentId: (id: string) => void;
   revertStudio: () => void;
   canRevertStudio: () => boolean;
+  setActiveComponentId: (id: string | null) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -45,6 +48,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   studioSourceMessageId: null,
   currentStudioComponentId: null,
   studioHistory: [],
+  activeComponentId: null,
   addMessage: (message) => {
     const id = uuidv4();
     set((state) => ({
@@ -105,8 +109,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     studioComponentId: null,
     studioSourceMessageId: null,
     currentStudioComponentId: null,
-    studioHistory: []
+    studioHistory: [],
+    activeComponentId: null
   }),
+  setActiveComponentId: (id) => set({ activeComponentId: id }),
   enterStudioMode: (componentId, sourceMessageId) => set({
     studioComponentId: componentId,
     studioSourceMessageId: sourceMessageId,
@@ -126,7 +132,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       studioComponentId: null,
       studioSourceMessageId: null,
       currentStudioComponentId: null,
-      studioHistory: []
+      studioHistory: [],
+      activeComponentId: currentStudioComponentId ?? null
     });
   },
   setCurrentStudioComponentId: (id) =>
