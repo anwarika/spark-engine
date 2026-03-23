@@ -51,6 +51,14 @@ Prompt: `"Give me a product analytics dashboard — DAU/WAU/MAU trend with 7-day
 
 ---
 
+### API — Generate, Pin, Regenerate
+
+The headless REST API and `@spark-engine/sdk` in action — generating a micro-app, pinning it to a stable ID, and regenerating it with a new prompt.
+
+![API Demo](docs/screenshots/screenshot-api.png)
+
+---
+
 ## Quick Start
 
 ```bash
