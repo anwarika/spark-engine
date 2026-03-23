@@ -16,11 +16,16 @@ class PromptCache:
     """
     Cache LLM responses based on semantic similarity of prompts.
     Avoids regenerating components for similar requests.
+
+    Bump CACHE_VERSION whenever system prompts change to automatically
+    invalidate all stale cached responses.
     """
+
+    CACHE_VERSION = "v5"  # bump when system prompts change
 
     def __init__(self, ttl_seconds: int = 86400):  # 24 hours default
         self.ttl_seconds = ttl_seconds
-        self.cache_prefix = "llm:prompt:"
+        self.cache_prefix = f"llm:prompt:{self.CACHE_VERSION}:"
 
     def _normalize_prompt(self, prompt: str) -> str:
         """
