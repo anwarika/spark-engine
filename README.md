@@ -51,54 +51,6 @@ Prompt: `"Give me a product analytics dashboard — DAU/WAU/MAU trend with 7-day
 
 ---
 
-### Account Intelligence View
-
-Prompt: `"Give me an intelligence brief on BlackRock — signals, contacts, open deal, and recommended next steps"`
-
-![Account Intelligence](docs/screenshots/screenshot-account.png)
-
----
-
-### Meeting Prep Brief
-
-Prompt: `"Prepare me for my 11am call with BlackRock — attendee context, signals, and a suggested talk track"`
-
-Triggered automatically 2 hours before the calendar event.
-
-![Meeting Prep Brief](docs/screenshots/screenshot-meeting.png)
-
----
-
-### Incident Command Center
-
-Prompt: `"Show me all active incidents — severity, who's on-call, MTTD/MTTR, live error rate sparkline, and a timeline of the last hour"`
-
-![Incident Command](docs/screenshots/screenshot-incident.png)
-
----
-
-### Sprint Health Dashboard
-
-Prompt: `"Give me a sprint health view for Sprint 24 — completion, velocity, team load, burndown chart, and blocked tickets"`
-
-![Sprint Health](docs/screenshots/screenshot-sprint.png)
-
----
-
-### Personal Budget Tracker
-
-Prompt: `"Show my March budget — spending by category, remaining balance, a donut breakdown, and recent transactions"`
-
-![Personal Budget](docs/screenshots/screenshot-budget.png)
-
----
-
-### API — Generate, Pin, Regenerate
-
-![API Demo](docs/screenshots/screenshot-api.png)
-
----
-
 ## Quick Start
 
 ```bash
