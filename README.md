@@ -25,11 +25,29 @@ Your agent sends a prompt like _"Build a sales pipeline dashboard for my Q1 deal
 
 ## Demo
 
-### Sales Pipeline Dashboard
+### Executive Intelligence Dashboard
 
-Prompt: `"Build a sales pipeline dashboard showing my Q1 deals, stage funnel, and top opportunities"`
+Prompt: `"Build an executive dashboard — ARR with sparklines, revenue trend by type, pipeline funnel, regional breakdown, and CAC vs LTV trend"`
 
-![Sales Pipeline Dashboard](docs/screenshots/screenshot-pipeline.png)
+Real ApexCharts: stacked bar chart, donut segmentation, horizontal funnel, CAC/LTV dual-line, sparkline KPI cards — all interactive with shared tooltips.
+
+![Executive Dashboard](docs/screenshots/rich-executive.png)
+
+---
+
+### Platform Observability
+
+Prompt: `"Show me a platform observability dashboard — uptime, error rate, p50/p95/p99 latency chart with SLO annotation, service health table, error heatmap, and volume trends"`
+
+![Platform Observability](docs/screenshots/rich-observability.png)
+
+---
+
+### Product Analytics
+
+Prompt: `"Give me a product analytics dashboard — DAU/WAU/MAU trend with 7-day moving average, cohort retention heatmap, acquisition channels donut, and activation funnel"`
+
+![Product Analytics](docs/screenshots/rich-product.png)
 
 ---
 
