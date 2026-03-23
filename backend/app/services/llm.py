@@ -101,6 +101,22 @@ CHART TYPE SELECTION GUIDE:
 - Funnel/stages → horizontal bar sorted descending with custom colors
 - Sparklines in KPI cards → minimal area chart (height:60, no axes, no toolbar)
 
+NUMBER FORMATTING (always use these helpers — never show raw integers):
+Define this helper at the top of every component that displays money or large numbers:
+  function fmtMoney(v) { return v >= 1e9 ? '$'+(v/1e9).toFixed(1)+'B' : v >= 1e6 ? '$'+(v/1e6).toFixed(1)+'M' : v >= 1e3 ? '$'+(v/1e3).toFixed(0)+'k' : '$'+Math.round(v); }
+  function fmtNum(v) { return v >= 1e9 ? (v/1e9).toFixed(1)+'B' : v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : String(Math.round(v)); }
+Use fmtMoney in yaxis.labels.formatter and tooltip.y.formatter for revenue charts.
+Use fmtNum for count/volume axes. NEVER display raw numbers like 104658761 — always format.
+
+DATA FIELD GUIDANCE FOR SAAS PROFILE:
+- For MRR/ARR TREND CHARTS: use kpi_monthly (monthly granularity, reliable mrr/arr fields)
+  Example: kpi_monthly.map(m => m.mrr) — these are populated, real monthly figures
+- For DAILY metrics (signups, events, pageviews): use metrics (daily series)
+  Note: metrics.mrr exists but may be 0 or sparse — prefer kpi_monthly for revenue trends
+- For WATERFALL (New ARR / Expansion / Churn): use kpi_monthly.net_new_mrr * 12 for new ARR,
+  derive expansion as mrr * 0.08, churn as mrr * churn_rate — kpi_monthly has all these fields
+- For KPI CARDS: always read from kpi_monthly[last] for current period values
+
 APEXCHARTS USAGE RULES — READ CAREFULLY:
 1. ALWAYS use onMount (NOT createEffect) to initialize charts. createEffect fires before the ref is in the DOM.
 2. ALWAYS call chart.destroy() in onCleanup to prevent memory leaks.
@@ -114,6 +130,7 @@ APEXCHARTS USAGE RULES — READ CAREFULLY:
 10. tooltip.theme: 'dark' always looks better.
 11. For heatmaps: plotOptions.heatmap.colorScale.ranges defines color stops (low→mid→high).
 12. Sparklines: chart:{ sparkline:{ enabled:true } } — omit all axes/toolbar/grid.
+13. Always use fmtMoney/fmtNum in yaxis.labels.formatter — never show raw integers on axes.
 
 WHEN TO GENERATE A RICH DASHBOARD (multi-chart layout):
 Trigger rich dashboard mode when the prompt contains ANY of: dashboard, overview, analytics, metrics, intelligence, observability, health, report, summary, monitor, performance.
@@ -360,6 +377,10 @@ async function fetchData() {
   return res.json();
 }
 
+// Always define these helpers — never show raw integers
+function fmtMoney(v) { return v >= 1e9 ? '$'+(v/1e9).toFixed(1)+'B' : v >= 1e6 ? '$'+(v/1e6).toFixed(1)+'M' : v >= 1e3 ? '$'+(v/1e3).toFixed(0)+'k' : '$'+Math.round(v); }
+function fmtNum(v) { return v >= 1e9 ? (v/1e9).toFixed(1)+'B' : v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : String(Math.round(v)); }
+
 function makeChart(ref, options, instances, key) {
   if (instances[key]) { instances[key].destroy(); }
   if (!ref) return;
@@ -392,11 +413,11 @@ export default function SaasDashboard() {
         fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.02, stops: [0,95,100] } },
         stroke: { curve: 'smooth', width: 2 },
         series: [
-          { name: 'MRR', data: metrics.slice(-60).map(function(m) { return Math.round((m.mrr || 0)); }) },
-          { name: 'New MRR', data: metrics.slice(-60).map(function(m) { return Math.round((m.new_mrr || 0)); }) }
+          { name: 'MRR', data: kpiMonthly.map(function(m) { return Math.round((m.mrr || 0)); }) },
+          { name: 'Net New MRR', data: kpiMonthly.map(function(m) { return Math.round((m.net_new_mrr || 0)); }) }
         ],
-        xaxis: { categories: metrics.slice(-60).map(function(m) { return m.date; }), tickAmount: 8, labels: { style: labelStyle } },
-        yaxis: { labels: { style: labelStyle, formatter: function(v) { return '$' + (v/1000).toFixed(0) + 'k'; } } },
+        xaxis: { categories: kpiMonthly.map(function(m) { return m.month || m.date || ''; }), tickAmount: 8, labels: { style: labelStyle } },
+        yaxis: { labels: { style: labelStyle, formatter: function(v) { return fmtMoney(v); } } },
         tooltip: tooltipDark,
         grid: { borderColor: '#1e293b50' }
       }, charts, 'revenue');
@@ -411,7 +432,7 @@ export default function SaasDashboard() {
           { name: 'Churn', data: kpiMonthly.slice(-12).map(function(m) { return -Math.round((m.mrr || 0) * (m.churn_rate || 0.03)); }) }
         ],
         xaxis: { categories: kpiMonthly.slice(-12).map(function(m) { return m.month || m.date || ''; }), labels: { style: labelStyle } },
-        yaxis: { labels: { style: labelStyle, formatter: function(v) { return '$' + (v/1000).toFixed(0) + 'k'; } } },
+        yaxis: { labels: { style: labelStyle, formatter: function(v) { return fmtMoney(v); } } },
         tooltip: tooltipDark,
         plotOptions: { bar: { borderRadius: 3 } },
         grid: { borderColor: '#1e293b50' }
@@ -519,6 +540,65 @@ DATA BRIDGE (sample to real swap):
 - Real data: POST to /api/components/{id}/data/swap with { mode: 'real', data: {...} } before switching.
 
 Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code in markdown fences."""
+
+        # ----------------------------------------------------------------
+        # WIDGET PROMPT — single focused visualization, embeddable card
+        # Target: 60-120 lines, one chart or one metric group, no full-page layout
+        # ----------------------------------------------------------------
+        self.widget_prompt = """You are an expert at generating beautiful embeddable widget micro-components.
+You generate Spark native microapps: single-purpose Solid.js widgets designed to live in a grid alongside other widgets.
+Visual quality bar: Grafana panel / Linear insight card / Stripe metric widget.
+
+WIDGET DESIGN RULES:
+- One chart OR one metric group per widget — never multiple chart panels
+- Card wrapper: <div class="card bg-base-100 shadow-sm border border-base-200 p-4 h-full">
+- Always include a compact header: <p class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-3">TITLE</p>
+- Chart height: 200-240px (not full page — designed to be embedded in a grid)
+- NO outer page wrapper (no min-h-screen, no p-6 bg-base-200) — the widget IS the card
+- Keep component under 100 lines
+- Use the same color palette: #6366f1 primary, #22d3ee secondary, #f59e0b amber, #10b981 emerald, #ef4444 red
+
+NUMBER FORMATTING (always use):
+  function fmtMoney(v) { return v >= 1e9 ? '$'+(v/1e9).toFixed(1)+'B' : v >= 1e6 ? '$'+(v/1e6).toFixed(1)+'M' : v >= 1e3 ? '$'+(v/1e3).toFixed(0)+'k' : '$'+Math.round(v); }
+  function fmtNum(v) { return v >= 1e9 ? (v/1e9).toFixed(1)+'B' : v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : String(Math.round(v)); }
+
+APEXCHARTS: Always use onMount + inner createEffect for chart init. chart.toolbar.show:false, animations.enabled:false.
+SOLID.JS: createResource for data, onCleanup to destroy chart instances.
+DATA FETCH: POST to /api/components/{component_id}/data using window.__COMPONENT_ID. Request appropriate profile in body.mock.profile.
+
+Available libraries: solid-js, solid-js/web, apexcharts (import ApexCharts from 'apexcharts'), DaisyUI + Tailwind.
+No window/document/localStorage/fetch (use createResource). ES2015 syntax only. No optional chaining.
+
+Response format (JSON, no markdown fences):
+{"type": "component", "content": "<complete Solid.js widget code>", "reasoning": "<brief note>"}"""
+
+        # ----------------------------------------------------------------
+        # QUICK PROMPT — ephemeral inline chat render, appears in thread
+        # Target: 30-60 lines, instant readable answer, no charts if a table suffices
+        # ----------------------------------------------------------------
+        self.quick_prompt = """You are an expert at generating fast, readable inline data components for chat interfaces.
+You generate Spark native microapps: lightweight Solid.js components that render instantly inside a chat thread.
+Think: ChatGPT data analyst inline answer, Perplexity inline table, not a full dashboard.
+
+QUICK RENDER RULES:
+- Prefer a clean table, stat grid, or simple bar chart over complex multi-series charts
+- NO card wrappers, NO page padding — render directly on the chat background (transparent feel)
+- Max height: 300px total. Component must be readable at a glance.
+- Text should be readable without interaction (no hover-only tooltips)
+- Keep component under 60 lines
+- Use DaisyUI table class for tabular data: <table class="table table-sm table-zebra w-full">
+- For a single number: <div class="stat"><div class="stat-title">...</div><div class="stat-value">...</div></div>
+- For a mini bar chart: use ApexCharts with height:160, no axes labels, no legend, sparkline-style
+- Load data fast: use scale:'small' in mock spec
+
+NUMBER FORMATTING: always format — never show raw integers.
+  function fmtMoney(v) { return v >= 1e6 ? '$'+(v/1e6).toFixed(1)+'M' : v >= 1e3 ? '$'+(v/1e3).toFixed(0)+'k' : '$'+Math.round(v); }
+
+SOLID.JS: createResource for data. onMount + createEffect for any chart. ES2015 only. No optional chaining.
+
+Response format (JSON, no markdown fences):
+{"type": "component" or "text", "content": "<Solid.js code or plain text answer>", "reasoning": "<brief note>"}"""
+
         self.style_doc_path = Path(__file__).resolve().parents[1] / "static" / "daisyui.txt"
         self._style_doc_content = ""
         self._style_doc_mtime = 0.0
@@ -555,27 +635,61 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
             snippet += "\n... (truncated; see backend/static/daisyui.txt for the full reference)"
         return snippet
 
+    # Keywords that force a specific generation mode regardless of explicit param
+    _DASHBOARD_KEYWORDS = {"dashboard", "overview", "analytics", "intelligence", "observability",
+                           "health", "report", "summary", "monitor", "performance", "metrics"}
+    _QUICK_KEYWORDS = {"quick", "show me", "what is", "how many", "give me", "tell me",
+                       "what's", "whats", "current", "today", "right now", "fast"}
+
+    def _detect_mode(self, user_message: str) -> str:
+        """Auto-detect generation mode from prompt if not explicitly provided."""
+        msg = user_message.lower()
+        words = set(msg.replace("?", "").replace(",", "").split())
+        # Explicit dashboard intent
+        if words & self._DASHBOARD_KEYWORDS:
+            return "dashboard"
+        # Short/quick queries
+        if len(user_message.split()) <= 8 or (words & self._QUICK_KEYWORDS):
+            return "quick"
+        # Default to widget for everything else (single focused viz)
+        return "widget"
+
+    def _get_system_prompt_for_mode(self, mode: str) -> str:
+        if mode == "dashboard":
+            return self.system_prompt
+        elif mode == "widget":
+            return self.widget_prompt
+        elif mode == "quick":
+            return self.quick_prompt
+        return self.system_prompt
+
     async def generate_response(
         self,
         user_message: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         llm_config: Optional[LLMConfig] = None,
+        mode: Optional[str] = None,
     ) -> ChatResponse:
         if conversation_history is None:
             conversation_history = []
 
         gateway = LLMGateway(llm_config) if llm_config else self.gateway
 
+        # Resolve generation mode
+        resolved_mode = mode if mode in ("dashboard", "widget", "quick") else self._detect_mode(user_message)
+        logger.info(f"Generation mode: {resolved_mode} (requested={mode})")
+
         # Check prompt cache first
-        cached_response = await self.prompt_cache.get_cached_response(user_message, "general")
+        cached_response = await self.prompt_cache.get_cached_response(user_message, resolved_mode)
         if cached_response:
             logger.info("Using cached LLM response")
             return cached_response
 
         self._refresh_style_reference()
         style_snippet = self._get_style_reference_snippet()
-        system_prompt = self.system_prompt
-        if style_snippet:
+        system_prompt = self._get_system_prompt_for_mode(resolved_mode)
+        if style_snippet and resolved_mode == "dashboard":
+            # Only append heavy DaisyUI reference for full dashboards
             system_prompt = f"{system_prompt}\n\nDaisyUI reference (cached):\n{style_snippet}"
 
         messages = (
@@ -600,7 +714,9 @@ Respond only with valid JSON in the specified format. CRITICAL: Do NOT wrap code
             if response.type == "component":
                 response.content = self._strip_markdown_fences(response.content)
 
-            await self.prompt_cache.cache_response(user_message, "general", response)
+            await self.prompt_cache.cache_response(user_message, resolved_mode, response)
+            # Attach resolved mode so callers can use it for iframe sizing etc.
+            response.meta = {"mode": resolved_mode}
             return response
 
         except Exception as e:

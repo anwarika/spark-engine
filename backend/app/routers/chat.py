@@ -281,7 +281,8 @@ async def chat_message(message: ChatMessage, request: Request):
     llm_start = time.time()
     llm_response = await llm_service.generate_response(
         message.message,
-        conversation_history
+        conversation_history,
+        mode=message.mode,
     )
     timing_breakdown["llm_generation_ms"] = round((time.time() - llm_start) * 1000, 2)
 

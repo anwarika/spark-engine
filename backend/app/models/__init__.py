@@ -36,6 +36,7 @@ class ChatMessage(BaseModel):
     user_id: str
     message: str
     component_id: Optional[str] = None  # When set, iterate on existing component
+    mode: Optional[str] = None          # 'dashboard' | 'widget' | 'quick' | None (auto-detect)
 
 
 class ChatResponse(BaseModel):
@@ -43,6 +44,7 @@ class ChatResponse(BaseModel):
     content: str
     component_id: Optional[uuid.UUID] = None
     reasoning: str = ""
+    meta: Dict[str, Any] = {}  # carries resolved mode, sizing hints, etc.
     # microapp_kind and appsmith_path removed as deprecated
 
 

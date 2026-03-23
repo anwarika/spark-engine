@@ -171,8 +171,11 @@ async def get_component_iframe(component_id: str, request: Request):
       }},
     }};
 
-    // Back-compat alias
+    // Back-compat aliases
     window.sendToParent = (type, payload) => window.spark.emit(type, payload);
+    // Allow components to reference window.__COMPONENT_ID and window.__DATA_MODE directly
+    window.__COMPONENT_ID = window.__SPARK.componentId;
+    window.__DATA_MODE = window.__SPARK.dataMode;
 
     // ----------------------------------------------------------------
     // Inbound message handler (host → iframe)
@@ -195,6 +198,7 @@ async def get_component_iframe(component_id: str, request: Request):
             const data = msg.data || (msg.payload && msg.payload.data) || null;
             window.__SET_DATA_BRIDGE(mode, data);
             window.__SPARK.dataMode = mode;
+            window.__DATA_MODE = mode;
             window.spark.emit('data_applied', {{ mode }});
           }}
           break;
