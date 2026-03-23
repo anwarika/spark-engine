@@ -5,6 +5,79 @@ All notable changes to Spark will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [3.3.0] - 2026-03-22
+
+This release makes Spark **headless and API-first**. The backend now speaks a clean protocol — any chat application can embed Spark without coupling to the default frontend. A TypeScript SDK ships alongside the new pinned apps API.
+
+### Added
+
+#### Headless API — Pinned Apps (`/api/apps`)
+
+- **`GET /api/apps`** — List all pinned apps for the current user (tenant + user scoped)
+- **`POST /api/apps/pin`** — Pin a component to a named slot (`slot_name`); slot identity is stable even when the component underneath is regenerated
+- **`GET /api/apps/{pin_id}`** — Fetch a single pinned app with enriched `iframe_url`
+- **`PATCH /api/apps/{pin_id}`** — Update pin metadata: `description`, `icon`, `sort_order`, `metadata`
+- **`POST /api/apps/{pin_id}/regenerate`** — Atomically swap the component under a pin; accepts an optional new `prompt` + `data_context`, otherwise reuses the original prompt. Returns `previous_component_id` + `new_component_id`; `pin_id` is unchanged
+- **`DELETE /api/apps/{pin_id}`** — Unpin
+
+- **`pinned_apps` table** (`database/migrations/20260322000000_add_pinned_apps.sql`) — `(tenant_id, user_id, slot_name)` unique constraint, `component_id` FK with `ON DELETE RESTRICT`, RLS policies, sorted indexes
+- **`PinnedApp`, `PinAppRequest`, `UpdatePinMetaRequest`, `UpdatePinComponentRequest`, `RegenerateResponse`** — Pydantic response + request models
+
+#### Auth Upgrade
+
+- **Bearer token support** (`Authorization: Bearer <base64(tenantId:userId)>`) — compact, integrator-friendly alternative to `X-Tenant-ID` / `X-User-ID` headers
+- `_parse_bearer()` in `backend/app/middleware/auth.py` decodes and validates; graceful fallback to header auth
+- Integrators mint tokens on their backend: `btoa(tenantId + ':' + userId)`
+
+#### `spark:*` Event Protocol (iframe ↔ host)
+
+Full structured postMessage protocol replacing ad-hoc globals:
+
+- `window.__SPARK` config object replaces individual `window.__COMPONENT_*` globals
+- **Outbound** (iframe → host): `spark:ready` (with render timing), `spark:error`, `spark:pinned`, `spark:action`, `spark:data_applied`, `spark:pong`
+- **Inbound** (host → iframe): `spark:data` / `data_swap` (back-compat), `spark:ping`, `spark:set_theme`
+- `window.spark.emit(name, payload)` — outbound bus accessible inside component code
+- `window.spark.pin(slotName, meta)` — convenience method to trigger `spark:pinned`
+- `window.spark.action(type, data)` — convenience method to trigger `spark:action`
+- `window.sendToParent` alias preserved for back-compat
+
+#### `@spark-engine/sdk` TypeScript Package (`packages/spark-sdk`)
+
+- **`SparkClient`** — typed HTTP client; Bearer token construction; `generate`, `listComponents`, `getComponent`, `iframeUrl`, `listPinnedApps`, `pinApp`, `getPinnedApp`, `updatePinMeta`, `regeneratePin`, `unpinApp`, `pushData`
+- **`SparkWidget`** — headless React component (`forwardRef`); props: `iframeUrl`, styling, event callbacks (`onReady`, `onError`, `onPinned`, `onAction`, `onDataApplied`, `onEvent`); imperative handle: `sendData(data, mode)`, `ping()`, `send(cmd)`, `iframe` ref
+- **`useSpark`** hook — full lifecycle state: `{ status, error, lastGenerated, pinnedApps, generate, pin, updatePin, regenerate, unpin, refreshPinnedApps, clearError }`; optimistic UI updates for pin/unpin/regenerate
+- **`SparkNavBar`** — unstyled reference nav component; `direction` prop (`horizontal` / `vertical`); `renderItem` prop for custom rendering
+- Full TypeScript interfaces: `SparkClientConfig`, `SparkComponent`, `GenerateRequest/Response`, `PinnedApp`, `RegenerateRequest/Response`, `SparkEvent<T>`, `SparkCommand`, `AnySparkEvent`
+- `SparkError` class with `status` + `detail`
+- Passes `tsc --noEmit` with zero errors (React 18 peer deps)
+
+#### Storage Layer
+
+- **`PostgresStorage`** — full implementation of 6 new pinned-app abstract methods: `create_pinned_app`, `get_pinned_app`, `list_pinned_apps`, `update_pinned_app_component`, `update_pinned_app_meta`, `delete_pinned_app`
+- **`SupabaseStorage`** — same 6 methods implemented, plus missing `find_component_by_content_hash` (fixes crash in cloud deployments)
+- Both implementations maintain full parity — local Docker (postgres mode) and cloud (Supabase mode) are functionally equivalent
+
+#### Frontend (`frontend/src`)
+
+- `appsAPI` service (`listPinnedApps`, `pinApp`, `getPinnedApp`, `updatePinMeta`, `regeneratePin`, `unpinApp`)
+- `normalizePinnedApp()` — handles both Supabase nested-join format and Postgres flat format
+- `dashboardsAPI` service (`getLayout`, `saveLayout`)
+- New TypeScript types: `PinnedApp`, `PinAppRequestBody`, `UpdatePinMetaRequestBody`, `RegeneratePinRequestBody`, `RegeneratePinResponse`, `SparkPinnedPostMessage`, `DashboardLayoutItem`, `DashboardLayoutResponse`
+- First-party pinned apps UI: nav strip, Pinned tab (regenerate / unpin / iterate)
+- Dashboard canvas — `react-grid-layout` view with server-persisted layout
+
+### Changed
+
+- `README.md` — complete rewrite: headless positioning, 7 demo screenshots (pipeline, account intelligence, meeting prep, incident command, sprint health, personal budget, API walkthrough), full API reference including `/api/apps`, SDK docs, architecture diagram
+- Version badge updated to 3.3.0
+
+### Fixed
+
+- `RuntimeError: Directory 'static/assets' does not exist` on startup — `backend/static/assets/` directory now created on first run
+- `Can't instantiate abstract class SupabaseStorage` — missing `find_component_by_content_hash` method added to `SupabaseStorage`
+
 ## [3.2.0] - 2026-03-01
 
 ### Added

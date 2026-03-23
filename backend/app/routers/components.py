@@ -131,110 +131,132 @@ async def get_component_iframe(component_id: str, request: Request):
   }}
   </script>
   <script>
-    // Global error handler
-    window.onerror = function(msg, url, line, col, error) {{
-      console.error('Error:', msg, 'at', url, line, col, error);
-      const app = document.getElementById('app');
-      if (app) {{
-        app.innerHTML = '<div style="padding: 20px; color: red;">Error: ' + msg + '</div>';
-      }}
-      return false;
+    // ----------------------------------------------------------------
+    // Spark runtime environment
+    // ----------------------------------------------------------------
+    window.__SPARK = {{
+      componentId: '{component_id}',
+      tenantId:    '{tenant_id}',
+      userId:      '{user_id}',
+      apiBase:     window.location.origin,
+      createdAt:   {component_created_timestamp if component_created_timestamp else 'null'},
+      dataMode:    'sample',
+      version:     '2.0',
     }};
-    
-    // Unhandled promise rejection handler
-    window.addEventListener('unhandledrejection', function(event) {{
-      console.error('Unhandled promise rejection:', event.reason);
-      const app = document.getElementById('app');
-      if (app) {{
-        app.innerHTML = '<div style="padding: 20px; color: red;">Promise Error: ' + event.reason + '</div>';
+
+    // ----------------------------------------------------------------
+    // spark:emit — structured outbound event bus (iframe → host)
+    // All events follow: {{ type: 'spark:<name>', componentId, payload, ts }}
+    // ----------------------------------------------------------------
+    window.spark = {{
+      emit: function(name, payload) {{
+        if (window.parent && window.parent !== window) {{
+          window.parent.postMessage({{
+            type: 'spark:' + name,
+            componentId: window.__SPARK.componentId,
+            payload: payload || {{}},
+            ts: Date.now(),
+          }}, '*');
+        }}
+      }},
+
+      // Convenience: signal that a pin action was requested from inside the app
+      pin: function(slotName, meta) {{
+        window.spark.emit('pinned', {{ slotName: slotName || '', meta: meta || {{}} }});
+      }},
+
+      // Convenience: emit a user-defined action (write surface, future use)
+      action: function(actionType, data) {{
+        window.spark.emit('action', {{ actionType: actionType, data: data || {{}} }});
+      }},
+    }};
+
+    // Back-compat alias
+    window.sendToParent = (type, payload) => window.spark.emit(type, payload);
+
+    // ----------------------------------------------------------------
+    // Inbound message handler (host → iframe)
+    // Supported commands:
+    //   spark:data        — swap Data Bridge data
+    //   spark:ping        — health check; responds with spark:pong
+    //   spark:set_theme   — pass a theme token (future)
+    // ----------------------------------------------------------------
+    window.__SPARK_INBOUND_HANDLERS = {{}};
+
+    window.addEventListener('message', function(event) {{
+      const msg = event.data;
+      if (!msg || typeof msg.type !== 'string') return;
+
+      switch (msg.type) {{
+        case 'spark:data':
+        case 'data_swap':   // back-compat
+          if (window.__SET_DATA_BRIDGE) {{
+            const mode = msg.mode || (msg.payload && msg.payload.mode) || 'real';
+            const data = msg.data || (msg.payload && msg.payload.data) || null;
+            window.__SET_DATA_BRIDGE(mode, data);
+            window.__SPARK.dataMode = mode;
+            window.spark.emit('data_applied', {{ mode }});
+          }}
+          break;
+
+        case 'spark:ping':
+          window.spark.emit('pong', {{ ts: Date.now() }});
+          break;
+
+        case 'spark:set_theme':
+          // Future: apply theme token
+          break;
+
+        default:
+          // Route to any registered handler
+          const handler = window.__SPARK_INBOUND_HANDLERS[msg.type];
+          if (handler) handler(msg.payload);
       }}
     }});
-    
-    // Component environment
-    window.__COMPONENT_TOKEN = 'placeholder-token';
-    window.__COMPONENT_ID = '{component_id}';
-    window.__TENANT_ID = '{tenant_id}';
-    window.__USER_ID = '{user_id}';
-    window.__API_BASE = window.location.origin;
-    window.__COMPONENT_CREATED_AT = {component_created_timestamp if component_created_timestamp else 'null'};
-    window.__DATA_MODE = 'sample';
 
-    // Helper to send events to parent
-    window.sendToParent = (type, payload) => {{
-        if (window.parent && window.parent !== window) {{
-            window.parent.postMessage({{
-                type: type,
-                payload: payload,
-                componentId: window.__COMPONENT_ID
-            }}, '*');
-        }}
+    // Global error → spark:error
+    window.onerror = function(msg, url, line, col, error) {{
+      console.error('Spark error:', msg, url, line, col);
+      window.spark.emit('error', {{ message: msg, url, line, col }});
+      const app = document.getElementById('app');
+      if (app) app.innerHTML = '<div style="padding:20px;color:red;">Error: ' + msg + '</div>';
+      return false;
     }};
-    
-    console.log('Component environment initialized:', {{
-      componentId: window.__COMPONENT_ID,
-      tenantId: window.__TENANT_ID,
-      userId: window.__USER_ID,
-      apiBase: window.__API_BASE
+
+    window.addEventListener('unhandledrejection', function(event) {{
+      console.error('Spark unhandled rejection:', event.reason);
+      window.spark.emit('error', {{ message: String(event.reason), type: 'unhandledrejection' }});
+      const app = document.getElementById('app');
+      if (app) app.innerHTML = '<div style="padding:20px;color:red;">Error: ' + String(event.reason) + '</div>';
     }});
   </script>
   <script type="module">
-    // Performance timing - mark when iframe starts loading
-    if (window.performance && window.performance.mark) {{
-      performance.mark('component-iframe-start');
-    }}
-    
-    // Import SolidJS and Data Bridge setup
+    if (window.performance && window.performance.mark) performance.mark('spark-iframe-start');
+
     import {{ render }} from 'solid-js/web';
     import {{ createContext, createSignal }} from 'solid-js';
-    
-    // Data Bridge: context for sample/real data swap
+
+    // Data Bridge
     const DataContext = createContext({{ data: null, mode: 'sample' }});
     const [bridgeData, setBridgeData] = createSignal(null);
     const [bridgeMode, setBridgeMode] = createSignal('sample');
-    
+
     window.__SET_DATA_BRIDGE = function(mode, data) {{
       setBridgeMode(mode || 'sample');
       setBridgeData(data || null);
     }};
     window.DataContext = DataContext;
-    
-    // PostMessage handler for data swap - also updates __DATA_MODE for template refetch
-    window.addEventListener('message', function(event) {{
-      if (event.data && event.data.type === 'data_swap') {{
-        window.__SET_DATA_BRIDGE(event.data.mode || 'real', event.data.data);
-        window.__DATA_MODE = event.data.mode || 'real';
-      }}
-    }});
-    
+
     try {{
-      // Dynamically import the component artifact (ESM module)
       const componentModule = await import('/api/components/{component_id}/artifact');
-      
-      if (window.performance && window.performance.mark) {{
-        performance.mark('component-artifact-loaded');
-      }}
-      
-      console.log('Component module loaded:', componentModule);
-      
-      // Get the default export (the component function)
+      if (window.performance) performance.mark('spark-artifact-loaded');
+
       const componentFunc = componentModule.default;
-      
-      if (!componentFunc) {{
-        throw new Error('No default export found in component module');
-      }}
-      
-      if (window.performance && window.performance.mark) {{
-        performance.mark('component-render-ready');
-      }}
-      
+      if (!componentFunc) throw new Error('No default export in component module');
+
+      if (window.performance) performance.mark('spark-render-start');
+
       const root = document.getElementById('app');
-      
-      // Mark render start
-      if (window.performance && window.performance.mark) {{
-        performance.mark('component-render-start');
-      }}
-      
-      // Render the component wrapped in DataProvider (Data Bridge context)
       const Provider = DataContext.Provider;
       render(function() {{
         return Provider({{
@@ -242,60 +264,47 @@ async def get_component_iframe(component_id: str, request: Request):
           get children() {{ return componentFunc ? componentFunc() : null; }}
         }});
       }}, root);
-      
-      // Mark render complete
-      if (window.performance && window.performance.mark) {{
-        performance.mark('component-render-complete');
-        
-        // Measure timing
+
+      if (window.performance) {{
+        performance.mark('spark-render-complete');
         try {{
-          performance.measure('component-artifact-load', 'component-iframe-start', 'component-artifact-loaded');
-          performance.measure('component-render-setup', 'component-artifact-loaded', 'component-render-ready');
-          performance.measure('component-render-exec', 'component-render-ready', 'component-render-complete');
-          performance.measure('component-total-render', 'component-iframe-start', 'component-render-complete');
-          
-          // Log render metrics
-          const measures = performance.getEntriesByType('measure');
-          const renderMetrics = {{
-            component_id: window.__COMPONENT_ID,
-            timing: {{}}
-          }};
-          
-          measures.forEach(measure => {{
-            if (measure.name.startsWith('component-')) {{
-              renderMetrics.timing[measure.name] = Math.round(measure.duration * 100) / 100;
-            }}
+          performance.measure('spark-artifact-load',  'spark-iframe-start',    'spark-artifact-loaded');
+          performance.measure('spark-render-exec',    'spark-render-start',    'spark-render-complete');
+          performance.measure('spark-total',          'spark-iframe-start',    'spark-render-complete');
+
+          const timing = {{}};
+          performance.getEntriesByType('measure').forEach(m => {{
+            if (m.name.startsWith('spark-')) timing[m.name] = Math.round(m.duration * 100) / 100;
           }});
-          
-          // Calculate total time from request to render
-          if (window.__COMPONENT_CREATED_AT) {{
-            const renderCompleteTime = Date.now();
-            const totalTimeMs = renderCompleteTime - window.__COMPONENT_CREATED_AT;
-            renderMetrics.timing['total-request-to-render'] = Math.round(totalTimeMs * 100) / 100;
-            console.log('Total time (request to render):', totalTimeMs, 'ms');
+
+          if (window.__SPARK.createdAt) {{
+            timing['request-to-render'] = Math.round((Date.now() - window.__SPARK.createdAt) * 100) / 100;
           }}
-          
-          console.log('Component render metrics:', JSON.stringify(renderMetrics));
-          
-          // Send metrics to backend (non-blocking)
-          fetch('/api/components/' + window.__COMPONENT_ID + '/render-metrics', {{
+
+          // Emit spark:ready with timing payload
+          window.spark.emit('ready', {{
+            componentId: window.__SPARK.componentId,
+            timing,
+          }});
+
+          // Send metrics to backend (fire-and-forget)
+          fetch('/api/components/' + window.__SPARK.componentId + '/render-metrics', {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
-            body: JSON.stringify(renderMetrics)
-          }}).catch(err => console.warn('Failed to send render metrics:', err));
-        }} catch (e) {{
+            body: JSON.stringify({{ component_id: window.__SPARK.componentId, timing }}),
+          }}).catch(() => {{}});
+        }} catch(e) {{
           console.warn('Performance measurement failed:', e);
         }}
+      }} else {{
+        window.spark.emit('ready', {{ componentId: window.__SPARK.componentId }});
       }}
-      
-      console.log('Component rendered successfully');
-      
+
     }} catch (error) {{
-      console.error('Failed to load or render component:', error);
+      console.error('Spark: failed to load component', error);
+      window.spark.emit('error', {{ message: error.message, type: 'load_failure' }});
       const app = document.getElementById('app');
-      if (app) {{
-        app.innerHTML = '<div style="padding: 20px; color: red;">Failed to load component: ' + error.message + '</div>';
-      }}
+      if (app) app.innerHTML = '<div style="padding:20px;color:red;">Failed to load component: ' + error.message + '</div>';
     }}
   </script>
 </body>

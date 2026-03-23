@@ -10,7 +10,7 @@ from app.config import settings
 from app.database import close_connections
 from app.middleware.auth import AuthMiddleware
 from app.middleware.logging import StructuredLoggingMiddleware, setup_logging
-from app.routers import chat, components, health, mock, catalog, a2a, cag_admin
+from app.routers import chat, components, health, mock, catalog, a2a, cag_admin, apps, dashboards
 
 
 setup_logging(settings.log_level)
@@ -47,6 +47,8 @@ app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
 app.include_router(mock.router, prefix="/api", tags=["mock"])
 app.include_router(a2a.router, prefix="/api/a2a", tags=["a2a"])
 app.include_router(cag_admin.router, prefix="/api", tags=["cag"])
+app.include_router(apps.router, prefix="/api/apps", tags=["apps"])
+app.include_router(dashboards.router, prefix="/api/dashboards", tags=["dashboards"])
 
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 if os.path.exists(static_dir):

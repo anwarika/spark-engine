@@ -1,14 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { MicroappIframe } from './MicroappIframe';
 import { componentAPI } from '../services/api';
 import type { Component } from '../types';
 import { useChatStore } from '../store/chatStore';
+import { usePinStore } from '../store/pinStore';
 
 export const ComponentsView: React.FC = () => {
   const [components, setComponents] = useState<Component[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { messages, enterStudioMode } = useChatStore();
+  const pinComponent = usePinStore((s) => s.pinComponent);
+  const pinnedApps = usePinStore((s) => s.pinnedApps);
+
+  const isComponentPinned = useCallback(
+    (componentId: string) => pinnedApps.some((p) => p.component_id === componentId),
+    [pinnedApps]
+  );
 
   // Extract component IDs from messages
   const componentIdsFromMessages = messages
@@ -98,8 +106,11 @@ export const ComponentsView: React.FC = () => {
                   <p className="text-sm text-base-content/70">{component.description}</p>
                 )}
               </div>
-              <div className="badge badge-outline">
-                {component.status}
+              <div className="flex items-center gap-2">
+                {isComponentPinned(component.id) && (
+                  <span className="badge badge-success badge-sm">Pinned</span>
+                )}
+                <div className="badge badge-outline">{component.status}</div>
               </div>
             </div>
             <MicroappIframe
@@ -107,6 +118,24 @@ export const ComponentsView: React.FC = () => {
               onIterate={() => {
                 const srcMsg = messages.find((m) => m.componentId === component.id);
                 enterStudioMode(component.id, srcMsg?.id ?? '');
+              }}
+              onPinClick={
+                isComponentPinned(component.id)
+                  ? undefined
+                  : () => {
+                      const slot = window.prompt(
+                        'Pin name (shown in nav)',
+                        component.name || `App ${component.id.slice(0, 8)}`
+                      );
+                      if (!slot?.trim()) return;
+                      void pinComponent(component.id, slot.trim()).catch(() => {});
+                    }
+              }
+              onSparkPinned={(detail) => {
+                if (detail.componentId !== component.id) return;
+                void pinComponent(detail.componentId, detail.slotName, {
+                  metadata: detail.meta,
+                }).catch(() => {});
               }}
             />
             <div className="text-xs text-base-content/50">

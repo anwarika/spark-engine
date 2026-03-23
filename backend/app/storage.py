@@ -85,6 +85,58 @@ class Storage(ABC):
         """
         pass
 
+    # ------------------------------------------------------------------
+    # Pinned Apps
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def create_pinned_app(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Pin a component. Returns the created pinned_app row."""
+        pass
+
+    @abstractmethod
+    async def get_pinned_app(self, pin_id: str, tenant_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    async def list_pinned_apps(self, tenant_id: str, user_id: str) -> List[Dict[str, Any]]:
+        """Returns all pinned apps for a user, joined with component metadata."""
+        pass
+
+    @abstractmethod
+    async def update_pinned_app_component(self, pin_id: str, tenant_id: str, user_id: str,
+                                          component_id: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """Atomically swap the component_id under a pin (used after re-generation)."""
+        pass
+
+    @abstractmethod
+    async def update_pinned_app_meta(self, pin_id: str, tenant_id: str, user_id: str,
+                                     updates: Dict[str, Any]) -> bool:
+        """Update mutable fields: slot_name, description, icon, sort_order, metadata."""
+        pass
+
+    @abstractmethod
+    async def delete_pinned_app(self, pin_id: str, tenant_id: str, user_id: str) -> bool:
+        pass
+
+    # ------------------------------------------------------------------
+    # Dashboard layouts
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def get_dashboard_layout(
+        self, tenant_id: str, user_id: str, name: str = "default"
+    ) -> Optional[Dict[str, Any]]:
+        """Return row dict with keys name, layout (list), updated_at or None."""
+        pass
+
+    @abstractmethod
+    async def upsert_dashboard_layout(
+        self, tenant_id: str, user_id: str, name: str, layout: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Insert or update layout JSON; returns { name, layout, updated_at }."""
+        pass
+
 
 class SupabaseStorage(Storage):
     def __init__(self, url: str, key: str):
@@ -232,6 +284,142 @@ class SupabaseStorage(Storage):
         self._set_tenant(tenant_id)
         self.client.table("component_templates").delete().eq("id", template_id).execute()
         return True
+
+    async def find_component_by_content_hash(self, tenant_id: str, content_hash: str) -> Optional[Dict[str, Any]]:
+        self._set_tenant(tenant_id)
+        result = (
+            self.client.table("components")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .eq("content_hash", content_hash)
+            .eq("status", "active")
+            .eq("compiled", True)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        return result.data[0] if result.data else None
+
+    # ------------------------------------------------------------------
+    # Pinned Apps — Supabase
+    # ------------------------------------------------------------------
+
+    async def create_pinned_app(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        self._set_tenant(data.get("tenant_id", ""))
+        result = self.client.table("pinned_apps").insert(data).execute()
+        return result.data[0] if result.data else {}
+
+    async def get_pinned_app(self, pin_id: str, tenant_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        self._set_tenant(tenant_id)
+        result = (
+            self.client.table("pinned_apps")
+            .select("*")
+            .eq("id", pin_id)
+            .eq("tenant_id", tenant_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return result.data[0] if result.data else None
+
+    async def list_pinned_apps(self, tenant_id: str, user_id: str) -> List[Dict[str, Any]]:
+        self._set_tenant(tenant_id)
+        result = (
+            self.client.table("pinned_apps")
+            .select("*, components(id, name, description, version, bundle_size_bytes, status, created_at, updated_at)")
+            .eq("tenant_id", tenant_id)
+            .eq("user_id", user_id)
+            .order("sort_order")
+            .execute()
+        )
+        return result.data if result.data else []
+
+    async def update_pinned_app_component(self, pin_id: str, tenant_id: str, user_id: str,
+                                          component_id: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        self._set_tenant(tenant_id)
+        update_data: Dict[str, Any] = {
+            "component_id": component_id,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        if metadata is not None:
+            update_data["metadata"] = metadata
+        result = (
+            self.client.table("pinned_apps")
+            .update(update_data)
+            .eq("id", pin_id)
+            .eq("tenant_id", tenant_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return bool(result.data)
+
+    async def update_pinned_app_meta(self, pin_id: str, tenant_id: str, user_id: str,
+                                     updates: Dict[str, Any]) -> bool:
+        self._set_tenant(tenant_id)
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        result = (
+            self.client.table("pinned_apps")
+            .update(updates)
+            .eq("id", pin_id)
+            .eq("tenant_id", tenant_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return bool(result.data)
+
+    async def delete_pinned_app(self, pin_id: str, tenant_id: str, user_id: str) -> bool:
+        self._set_tenant(tenant_id)
+        self.client.table("pinned_apps").delete().eq("id", pin_id).eq("tenant_id", tenant_id).eq("user_id", user_id).execute()
+        return True
+
+    async def get_dashboard_layout(
+        self, tenant_id: str, user_id: str, name: str = "default"
+    ) -> Optional[Dict[str, Any]]:
+        self._set_tenant(tenant_id)
+        result = (
+            self.client.table("dashboard_layouts")
+            .select("name, layout, updated_at")
+            .eq("tenant_id", tenant_id)
+            .eq("user_id", user_id)
+            .eq("name", name)
+            .limit(1)
+            .execute()
+        )
+        if not result.data:
+            return None
+        row = result.data[0]
+        layout = row.get("layout")
+        if layout is None:
+            layout = []
+        return {"name": row["name"], "layout": layout, "updated_at": row.get("updated_at")}
+
+    async def upsert_dashboard_layout(
+        self, tenant_id: str, user_id: str, name: str, layout: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        self._set_tenant(tenant_id)
+        now = datetime.utcnow().isoformat()
+        existing = (
+            self.client.table("dashboard_layouts")
+            .select("id")
+            .eq("tenant_id", tenant_id)
+            .eq("user_id", user_id)
+            .eq("name", name)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            self.client.table("dashboard_layouts").update({
+                "layout": layout,
+                "updated_at": now,
+            }).eq("id", existing.data[0]["id"]).execute()
+        else:
+            self.client.table("dashboard_layouts").insert({
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "name": name,
+                "layout": layout,
+                "updated_at": now,
+            }).execute()
+        return {"name": name, "layout": layout, "updated_at": now}
 
 
 class PostgresStorage(Storage):
@@ -472,15 +660,15 @@ class PostgresStorage(Storage):
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("""
-                SELECT * FROM components 
-                WHERE tenant_id = $1 
-                  AND content_hash = $2 
-                  AND status = 'active' 
+                SELECT * FROM components
+                WHERE tenant_id = $1
+                  AND content_hash = $2
+                  AND status = 'active'
                   AND compiled = TRUE
                 ORDER BY created_at DESC
                 LIMIT 1
             """, tenant_id, content_hash)
-            
+
             if row:
                 d = dict(row)
                 d['id'] = str(d['id'])
@@ -488,3 +676,172 @@ class PostgresStorage(Storage):
                 d['updated_at'] = d['updated_at'].isoformat() if d['updated_at'] else None
                 return d
             return None
+
+    # ------------------------------------------------------------------
+    # Pinned Apps — Postgres
+    # ------------------------------------------------------------------
+
+    async def create_pinned_app(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        pool = await self._get_pool()
+        fields = list(data.keys())
+        values = list(data.values())
+        placeholders = [f"${i+1}" for i in range(len(values))]
+        stmt = f"""
+            INSERT INTO pinned_apps ({', '.join(fields)})
+            VALUES ({', '.join(placeholders)})
+            RETURNING *
+        """
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(stmt, *values)
+            if row:
+                d = dict(row)
+                d['id'] = str(d['id'])
+                d['component_id'] = str(d['component_id'])
+                d['pinned_at'] = d['pinned_at'].isoformat() if d['pinned_at'] else None
+                d['updated_at'] = d['updated_at'].isoformat() if d['updated_at'] else None
+                return d
+            return {}
+
+    async def get_pinned_app(self, pin_id: str, tenant_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT p.*, c.name AS component_name, c.status AS component_status
+                FROM pinned_apps p
+                JOIN components c ON c.id = p.component_id
+                WHERE p.id = $1::uuid AND p.tenant_id = $2 AND p.user_id = $3
+            """, pin_id, tenant_id, user_id)
+            if row:
+                d = dict(row)
+                d['id'] = str(d['id'])
+                d['component_id'] = str(d['component_id'])
+                d['pinned_at'] = d['pinned_at'].isoformat() if d['pinned_at'] else None
+                d['updated_at'] = d['updated_at'].isoformat() if d['updated_at'] else None
+                return d
+            return None
+
+    async def list_pinned_apps(self, tenant_id: str, user_id: str) -> List[Dict[str, Any]]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT
+                    p.id, p.tenant_id, p.user_id, p.component_id,
+                    p.slot_name, p.description, p.icon, p.sort_order,
+                    p.metadata, p.pinned_at, p.updated_at,
+                    c.name AS component_name, c.version AS component_version,
+                    c.bundle_size_bytes, c.status AS component_status,
+                    c.created_at AS component_created_at
+                FROM pinned_apps p
+                JOIN components c ON c.id = p.component_id
+                WHERE p.tenant_id = $1 AND p.user_id = $2
+                ORDER BY p.sort_order ASC, p.pinned_at ASC
+            """, tenant_id, user_id)
+            result = []
+            for row in rows:
+                d = dict(row)
+                d['id'] = str(d['id'])
+                d['component_id'] = str(d['component_id'])
+                d['pinned_at'] = d['pinned_at'].isoformat() if d['pinned_at'] else None
+                d['updated_at'] = d['updated_at'].isoformat() if d['updated_at'] else None
+                if d.get('component_created_at'):
+                    d['component_created_at'] = d['component_created_at'].isoformat()
+                result.append(d)
+            return result
+
+    async def update_pinned_app_component(self, pin_id: str, tenant_id: str, user_id: str,
+                                          component_id: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            if metadata is not None:
+                result = await conn.execute("""
+                    UPDATE pinned_apps
+                    SET component_id = $1::uuid, metadata = $2, updated_at = NOW()
+                    WHERE id = $3::uuid AND tenant_id = $4 AND user_id = $5
+                """, component_id, json.dumps(metadata), pin_id, tenant_id, user_id)
+            else:
+                result = await conn.execute("""
+                    UPDATE pinned_apps
+                    SET component_id = $1::uuid, updated_at = NOW()
+                    WHERE id = $2::uuid AND tenant_id = $3 AND user_id = $4
+                """, component_id, pin_id, tenant_id, user_id)
+            return "UPDATE 0" not in result
+
+    async def update_pinned_app_meta(self, pin_id: str, tenant_id: str, user_id: str,
+                                     updates: Dict[str, Any]) -> bool:
+        pool = await self._get_pool()
+        allowed = {"slot_name", "description", "icon", "sort_order", "metadata"}
+        filtered = {k: v for k, v in updates.items() if k in allowed}
+        if not filtered:
+            return False
+        set_clauses = []
+        params: list = []
+        for key, val in filtered.items():
+            params.append(val)
+            set_clauses.append(f"{key} = ${len(params)}")
+        params.extend([pin_id, tenant_id, user_id])
+        stmt = f"""
+            UPDATE pinned_apps
+            SET {', '.join(set_clauses)}, updated_at = NOW()
+            WHERE id = ${len(params)-2}::uuid
+              AND tenant_id = ${len(params)-1}
+              AND user_id = ${len(params)}
+        """
+        async with pool.acquire() as conn:
+            result = await conn.execute(stmt, *params)
+            return "UPDATE 0" not in result
+
+    async def delete_pinned_app(self, pin_id: str, tenant_id: str, user_id: str) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("""
+                DELETE FROM pinned_apps
+                WHERE id = $1::uuid AND tenant_id = $2 AND user_id = $3
+            """, pin_id, tenant_id, user_id)
+            return "DELETE 0" not in result
+
+    async def get_dashboard_layout(
+        self, tenant_id: str, user_id: str, name: str = "default"
+    ) -> Optional[Dict[str, Any]]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT name, layout, updated_at
+                FROM dashboard_layouts
+                WHERE tenant_id = $1 AND user_id = $2 AND name = $3
+            """, tenant_id, user_id, name)
+            if not row:
+                return None
+            d = dict(row)
+            lay = d.get("layout")
+            if isinstance(lay, str):
+                d["layout"] = json.loads(lay)
+            elif lay is None:
+                d["layout"] = []
+            d["updated_at"] = d["updated_at"].isoformat() if d.get("updated_at") else None
+            return d
+
+    async def upsert_dashboard_layout(
+        self, tenant_id: str, user_id: str, name: str, layout: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO dashboard_layouts (tenant_id, user_id, name, layout, updated_at)
+                VALUES ($1, $2, $3, $4::jsonb, NOW())
+                ON CONFLICT (tenant_id, user_id, name)
+                DO UPDATE SET layout = EXCLUDED.layout, updated_at = NOW()
+            """, tenant_id, user_id, name, json.dumps(layout))
+            row = await conn.fetchrow("""
+                SELECT name, layout, updated_at FROM dashboard_layouts
+                WHERE tenant_id = $1 AND user_id = $2 AND name = $3
+            """, tenant_id, user_id, name)
+            if not row:
+                return {"name": name, "layout": layout, "updated_at": None}
+            d = dict(row)
+            lay = d.get("layout")
+            if isinstance(lay, str):
+                d["layout"] = json.loads(lay)
+            elif lay is None:
+                d["layout"] = []
+            d["updated_at"] = d["updated_at"].isoformat() if d.get("updated_at") else None
+            return {"name": d["name"], "layout": d["layout"], "updated_at": d["updated_at"]}

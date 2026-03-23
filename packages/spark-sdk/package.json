@@ -1,0 +1,48 @@
+{
+  "name": "@spark-engine/sdk",
+  "version": "3.3.0",
+  "description": "Headless SDK for embedding Spark micro-apps in any chat application",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json && node scripts/build-esm.js",
+    "dev": "tsc --watch",
+    "test": "jest --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
+    "typescript": "^5.9.3"
+  },
+  "keywords": [
+    "spark",
+    "micro-app",
+    "generative-ui",
+    "agent",
+    "a2a",
+    "headless"
+  ],
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anwarika/spark-engine"
+  }
+}

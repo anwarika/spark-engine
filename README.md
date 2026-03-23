@@ -1,153 +1,475 @@
 # Spark
 
-### A2A Micro App Generation Service
+### Headless Micro App Generation Engine
 
-Generate Solid.js micro-apps from natural language. Connect your AI agent—Spark handles generation, validation, compilation, and serving.
+Spark turns natural language prompts into live, embeddable micro-apps. Your AI agent sends a prompt — Spark generates, compiles, and serves a sandboxed Solid.js UI as an iframe URL. Any chat interface can embed Spark. No UI framework required.
 
-[![Version](https://img.shields.io/badge/version-3.2.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.3.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-AGPLv3-green.svg)](LICENSE)
+[![SDK](https://img.shields.io/badge/npm-%40spark--engine%2Fsdk-cb0000.svg)](packages/spark-sdk)
 
 ---
 
-## What is Spark?
+## What it does
 
-Spark is an **Agent-to-Agent (A2A)** service that turns prompts into renderable UI. Your AI agent sends a request with a prompt and optional data—Spark returns a compiled micro-app URL.
+Your agent sends a prompt like _"Build a sales pipeline dashboard for my Q1 deals"_. Spark:
 
-- **Pluggable LLM Gateway**: OpenAI, OpenRouter, LiteLLM, Bloomberg LLMGW, or any OpenAI-compatible endpoint
-- **Per-request config**: Override provider, model, and API credentials per request
-- **Built-in fallback**: Automatic failover to a backup provider on errors
+1. Calls the LLM with your prompt and optional data context
+2. Validates, compiles, and bundles the generated Solid.js component
+3. Returns an `iframe_url` your app can render immediately
+4. Persists the component so the user can pin it, revisit it, and regenerate it
 
-## Get Started
+**Headless by design.** Spark has no opinions about your UI shell, design system, or chat framework. You own the chrome — Spark owns the generation.
 
-### Quick Start
+---
+
+## Demo
+
+### Sales Pipeline Dashboard
+
+Prompt: `"Build a sales pipeline dashboard showing my Q1 deals, stage funnel, and top opportunities"`
+
+![Sales Pipeline Dashboard](docs/screenshots/screenshot-pipeline.png)
+
+---
+
+### Account Intelligence View
+
+Prompt: `"Give me an intelligence brief on BlackRock — signals, contacts, open deal, and recommended next steps"`
+
+![Account Intelligence](docs/screenshots/screenshot-account.png)
+
+---
+
+### Meeting Prep Brief
+
+Prompt: `"Prepare me for my 11am call with BlackRock — attendee context, signals, and a suggested talk track"`
+
+Triggered automatically 2 hours before the calendar event.
+
+![Meeting Prep Brief](docs/screenshots/screenshot-meeting.png)
+
+---
+
+### Incident Command Center
+
+Prompt: `"Show me all active incidents — severity, who's on-call, MTTD/MTTR, live error rate sparkline, and a timeline of the last hour"`
+
+![Incident Command](docs/screenshots/screenshot-incident.png)
+
+---
+
+### Sprint Health Dashboard
+
+Prompt: `"Give me a sprint health view for Sprint 24 — completion, velocity, team load, burndown chart, and blocked tickets"`
+
+![Sprint Health](docs/screenshots/screenshot-sprint.png)
+
+---
+
+### Personal Budget Tracker
+
+Prompt: `"Show my March budget — spending by category, remaining balance, a donut breakdown, and recent transactions"`
+
+![Personal Budget](docs/screenshots/screenshot-budget.png)
+
+---
+
+### API — Generate, Pin, Regenerate
+
+![API Demo](docs/screenshots/screenshot-api.png)
+
+---
+
+## Quick Start
 
 ```bash
 git clone https://github.com/your-org/spark.git
 cd spark
-export OPENAI_API_KEY=sk-...
+cp .env.example .env   # add OPENAI_API_KEY at minimum
 docker-compose up -d
 ```
 
-### Use It in Your Agent
+Backend runs at `http://localhost:8000`. Frontend dev server at `http://localhost:5173`.
 
-**Magic Link** — Have your bot send this to the user:
+---
+
+## Core Concepts
+
+### Generate → Pin → Regenerate
+
 ```
-http://localhost:8000/api/a2a/render?prompt=Show+me+sales+for+2024
+Prompt  ──▶  /api/a2a/generate  ──▶  component_id + iframe_url
+                                              │
+                                   /api/apps/pin  ──▶  pin_id (stable bookmark)
+                                              │
+                               /api/apps/{pin_id}/regenerate  ──▶  new component_id
+                                              │                       (same pin_id)
+                                   user navigates by slot_name, always gets latest
 ```
 
-**API Call** — For programmatic access:
+**Pin ID is the stable identity.** The `component_id` underneath can be swapped on every regeneration — the user's bookmark (`slot_name`) never breaks.
+
+### Event Protocol
+
+Every Spark iframe emits structured `spark:*` postMessage events. Your host subscribes to them:
+
+```javascript
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'spark:pinned') {
+    // user clicked "Pin" inside the micro-app
+    const { componentId, payload: { slotName, meta } } = e.data;
+    client.pinApp({ componentId, slotName, ...meta });
+  }
+  if (e.data?.type === 'spark:action') {
+    // micro-app emitted a domain action (e.g. "open_deal", "schedule_meeting")
+    handleDomainAction(e.data.payload);
+  }
+});
+```
+
+| Event | Direction | When |
+|---|---|---|
+| `spark:ready` | iframe → host | Component mounted, includes render timing |
+| `spark:pinned` | iframe → host | User pinned via `window.spark.pin()` |
+| `spark:action` | iframe → host | Domain action emitted via `window.spark.action()` |
+| `spark:error` | iframe → host | Runtime error inside iframe |
+| `spark:data_applied` | iframe → host | Data Bridge swap completed |
+| `spark:pong` | iframe → host | Response to host `spark:ping` |
+
+Send commands inbound with `iframeEl.contentWindow.postMessage({ type: 'spark:data', data: {...} }, '*')`.
+
+### Data Bridge
+
+Swap sample data for real data without regenerating the component:
 
 ```bash
-curl -X POST http://localhost:8000/api/a2a/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Create a dashboard for these metrics",
-    "data_context": { "revenue": 5000, "growth": "15%" }
-  }'
+curl -X POST http://localhost:8000/api/components/{id}/data/swap \
+  -H "X-Tenant-ID: acme-corp" \
+  -d '{"real_data": { "pipeline_value": 4200000, "deals": [...] }}'
 ```
 
-**Iterate on existing component** — Pass `component_id` to edit instead of create:
+The component re-renders with live data. Cached in Redis per tenant — no LLM call required.
+
+---
+
+## API Reference
+
+### A2A — Generation
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/a2a/generate` | Generate micro-app from prompt |
+| GET | `/api/a2a/render?prompt=` | Magic link — returns iframe HTML directly |
+
+**Generate request:**
+
+```json
+{
+  "prompt": "Build a sales pipeline dashboard",
+  "data_context": { "pipeline_value": 4200000 },
+  "component_id": "abc-123",
+  "llm_config": {
+    "provider": "openrouter",
+    "model": "anthropic/claude-3.5-sonnet",
+    "api_key": "sk-or-..."
+  }
+}
+```
+
+**Generate response:**
+
+```json
+{
+  "component_id": "a3f7b2e1-...",
+  "iframe_url":   "http://localhost:8000/api/components/a3f7b2e1-.../iframe",
+  "status":       "compiled",
+  "name":         "SalesPipelineDashboard",
+  "bundle_size_bytes": 18432,
+  "cache_hit":    false,
+  "reasoning":    "..."
+}
+```
+
+### Pinned Apps
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/apps` | List all pinned apps for the current user |
+| POST | `/api/apps/pin` | Pin a component to a named slot |
+| GET | `/api/apps/{pin_id}` | Get a single pinned app |
+| PATCH | `/api/apps/{pin_id}` | Update pin metadata (description, icon, sort_order) |
+| POST | `/api/apps/{pin_id}/regenerate` | Regenerate the component under this pin |
+| DELETE | `/api/apps/{pin_id}` | Unpin |
+
+**Pin request:**
+
+```json
+{
+  "component_id": "a3f7b2e1-...",
+  "slot_name":    "pipeline",
+  "description":  "Q1 Sales Pipeline",
+  "icon":         "📊",
+  "sort_order":   1
+}
+```
+
+**Regenerate request** (optional — omit to reuse the original prompt):
+
+```json
+{
+  "prompt": "Add a stage conversion funnel and highlight at-risk deals in red",
+  "data_context": { "pipeline_value": 4200000 }
+}
+```
+
+**Regenerate response:**
+
+```json
+{
+  "id":                    "pin-9x2k-abc",
+  "previous_component_id": "a3f7b2e1-...",
+  "new_component_id":      "c8d4e5f6-...",
+  "iframe_url":            "http://localhost:8000/api/components/c8d4e5f6-.../iframe"
+}
+```
+
+### Components
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/components` | List compiled components |
+| GET | `/api/components/{id}` | Get component metadata |
+| GET | `/api/components/{id}/iframe` | Serve sandboxed iframe HTML |
+| POST | `/api/components/{id}/data` | Data endpoint called by iframe at runtime |
+| POST | `/api/components/{id}/data/swap` | Data Bridge — store real data in Redis |
+
+### Chat (Studio mode)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/chat/message` | Non-streaming — send prompt, get response |
+| POST | `/api/chat/message/stream` | SSE stream — progress + done events |
+
+Pass `component_id` in the request body to iterate on an existing micro-app (bolt.new-style).
+
+### Dashboards
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/dashboards/layout` | Get saved grid layout for a dashboard |
+| PUT | `/api/dashboards/layout` | Save grid layout |
+
+### Auth
+
+All endpoints accept either:
+
+```
+X-Tenant-ID: acme-corp
+X-User-ID:   user-42
+```
+
+Or a compact Bearer token (preferred for SDK integrations):
+
+```
+Authorization: Bearer <base64(tenantId:userId)>
+```
+
+Mint the token on your backend:
+
+```javascript
+const token = Buffer.from(`${tenantId}:${userId}`).toString('base64');
+// → "YWNtZS1jb3JwOnVzZXItNDI="
+```
+
+---
+
+## TypeScript SDK
 
 ```bash
-curl -X POST http://localhost:8000/api/a2a/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Add a KPI card for total revenue",
-    "component_id": "abc-123-existing-component-uuid"
-  }'
+npm install @spark-engine/sdk
 ```
 
-**Per-request LLM override** — Use a different provider/model per request:
+### SparkClient
 
-```bash
-curl -X POST http://localhost:8000/api/a2a/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Build a revenue chart",
-    "llm_config": {
-      "provider": "openrouter",
-      "model": "anthropic/claude-3.5-sonnet",
-      "api_key": "sk-or-..."
-    }
-  }'
+```typescript
+import { SparkClient } from '@spark-engine/sdk';
+
+const client = new SparkClient({
+  baseUrl:  'https://spark.yourdomain.com',
+  tenantId: 'acme-corp',
+  userId:   'user-42',
+});
+
+// Generate
+const result = await client.generate({
+  prompt: 'Build a sales pipeline dashboard',
+  dataContext: { pipeline_value: 4200000 },
+});
+
+// Pin
+const pin = await client.pinApp({
+  componentId: result.componentId,
+  slotName:    'pipeline',
+  icon:        '📊',
+});
+
+// Regenerate — pin.id stays the same, component underneath is swapped
+const updated = await client.regeneratePin(pin.id, {
+  prompt: 'Add a conversion funnel',
+});
+
+// Push live data (Data Bridge — no regeneration)
+await client.pushData(result.componentId, { pipeline_value: 5100000 });
 ```
+
+### SparkWidget
+
+Zero styling. Drop it anywhere:
+
+```tsx
+import { SparkWidget } from '@spark-engine/sdk';
+import type { SparkWidgetHandle } from '@spark-engine/sdk';
+import { useRef } from 'react';
+
+function ChatMessage({ componentId }: { componentId: string }) {
+  const widgetRef = useRef<SparkWidgetHandle>(null);
+
+  return (
+    <SparkWidget
+      ref={widgetRef}
+      iframeUrl={client.iframeUrl(componentId)}
+      iframeStyle={{ width: '100%', height: 480, border: 'none', borderRadius: 12 }}
+      onReady={({ renderMs }) => console.log(`Rendered in ${renderMs}ms`)}
+      onPinned={({ slotName, meta }) => client.pinApp({ componentId, slotName })}
+      onAction={({ type, data }) => handleDomainAction(type, data)}
+    />
+  );
+}
+```
+
+**Imperative API (via ref):**
+
+```typescript
+widgetRef.current?.sendData({ pipeline_value: 5100000 });  // Data Bridge
+widgetRef.current?.ping();                                  // Health check
+```
+
+### useSpark hook
+
+```tsx
+import { useSpark } from '@spark-engine/sdk';
+
+function AgentChat() {
+  const { status, error, pinnedApps, generate, pin, regenerate, unpin } = useSpark(client);
+
+  const handleUserMessage = async (message: string) => {
+    const result = await generate({ prompt: message });
+    // result.componentId is ready to pass to SparkWidget
+  };
+
+  return (
+    <div>
+      <SparkNavBar
+        pinnedApps={pinnedApps}
+        onUnpin={(pinId) => unpin(pinId)}
+        direction="horizontal"
+      />
+      {/* ... render SparkWidgets for each message */}
+    </div>
+  );
+}
+```
+
+### SparkNavBar
+
+Unstyled reference nav bar. Fork it, don't depend on it:
+
+```tsx
+import { SparkNavBar } from '@spark-engine/sdk';
+
+<SparkNavBar
+  pinnedApps={pinnedApps}
+  onSelect={(pin) => setActivePinId(pin.id)}
+  onUnpin={(pinId) => client.unpinApp(pinId)}
+  direction="horizontal"
+  renderItem={({ pin, isActive, onSelect, onUnpin }) => (
+    <MyNavItem
+      icon={pin.icon}
+      label={pin.description || pin.slot_name}
+      active={isActive}
+      onClick={onSelect}
+      onUnpin={onUnpin}
+    />
+  )}
+/>
+```
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Your Application                         │
+│                                                             │
+│  ┌────────────┐   ┌─────────────┐   ┌────────────────────┐  │
+│  │ Chat Shell │   │  Nav Bar    │   │ Dashboard (grid)   │  │
+│  └─────┬──────┘   └──────┬──────┘   └─────────┬──────────┘  │
+│        │                 │                    │              │
+│        └─────────────────┴────────────────────┘              │
+│                          │                                   │
+│               @spark-engine/sdk                              │
+│          SparkClient  ·  SparkWidget  ·  useSpark            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTP + Bearer token
+           ┌───────────────▼─────────────────────────┐
+           │               Spark API                 │
+           │                                         │
+           │  /api/a2a/*        /api/apps/*           │
+           │  /api/components/* /api/chat/*           │
+           │  /api/dashboards/*                       │
+           │                                         │
+           │  ┌────────────┐    ┌──────────────────┐  │
+           │  │ LLM Gateway│    │ Compiler         │  │
+           │  │ OpenAI /   │    │ (esbuild+Solid)  │  │
+           │  │ OpenRouter /│   └──────────────────┘  │
+           │  │ LiteLLM /  │    ┌──────────────────┐  │
+           │  │ LLMGW      │    │ Validator        │  │
+           │  └────────────┘    │ (AST scan)       │  │
+           │                    └──────────────────┘  │
+           │  ┌────────────┐    ┌──────────────────┐  │
+           │  │ PostgreSQL │    │ Redis            │  │
+           │  │ components │    │ Data Bridge      │  │
+           │  │ pinned_apps│    │ cache            │  │
+           │  └────────────┘    └──────────────────┘  │
+           └───────────────┬─────────────────────────┘
+                           │
+           ┌───────────────▼─────────────────────────┐
+           │          Sandboxed iframe               │
+           │                                         │
+           │  window.__SPARK  ·  window.spark.*       │
+           │  spark:ready  spark:pinned  spark:action │
+           └─────────────────────────────────────────┘
+```
+
+---
 
 ## LLM Gateway
 
 All providers speak the OpenAI `/v1/chat/completions` format. Configure via env or per-request `llm_config`.
 
-| Provider   | base_url                         | Env Key           |
-|-----------|-----------------------------------|-------------------|
-| openai    | https://api.openai.com/v1         | OPENAI_API_KEY    |
-| openrouter| https://openrouter.ai/api/v1      | OPENROUTER_API_KEY|
-| litellm   | http://localhost:4000/v1          | LITELLM_API_KEY   |
-| llmgw     | (set via LLMGW_BASE_URL)         | LLMGW_API_KEY     |
-| custom    | (set via config)                 | CUSTOM_LLM_API_KEY|
+| Provider | `base_url` | Env key |
+|---|---|---|
+| `openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
+| `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `litellm` | `http://localhost:4000/v1` | `LITELLM_API_KEY` |
+| `llmgw` | set via `LLMGW_BASE_URL` | `LLMGW_API_KEY` |
+| `custom` | set via config | `CUSTOM_LLM_API_KEY` |
 
-**Fallback**: Set `LLM_FALLBACK_PROVIDER`, `LLM_FALLBACK_MODEL`, etc. to fail over on errors.
+Set `LLM_FALLBACK_PROVIDER` + `LLM_FALLBACK_MODEL` for automatic failover.
 
-See [.env.example](.env.example) for the full config.
-
-## Features
-
-- **Generative UI**: LLM produces Solid.js components—dashboards, charts, tables, KPIs
-- **9 Pre-built Templates**: StatCard, DataTable, LineChart, BarChart, DonutChart, HeatmapChart, MixedChart, ListWithSearch, MetricsDashboard
-- **Studio Mode iteration**: Multi-turn microapp editing (bolt.new-style)—click "Iterate" on any microapp to open a split-panel studio with live preview and scoped chat; revert/undo support
-- **Data Bridge**: Sample → real data swap without regeneration
-- **CAG**: Content-addressable generation for deduplication
-- **Security**: AST validation, forbidden API detection, sandboxed iframe execution
-- **Multi-tenant**: PostgreSQL RLS isolation
-
-## Architecture
-
-```
-┌─────────────────┐
-│ External Agent  │
-└────────┬────────┘
-         │ POST /api/a2a/generate
-         ▼
-┌─────────────────┐     ┌──────────────┐
-│  A2A Router      │────▶│ LLM Gateway  │──▶ OpenAI / OpenRouter / LiteLLM / custom
-└────────┬────────┘     └──────────────┘
-         │
-         ▼
-┌─────────────────┐     ┌──────────────┐
-│  Validator      │     │  Compiler    │
-│  Compiler       │     │  (esbuild)   │
-└────────┬────────┘     └──────────────┘
-         │
-         ▼
-┌─────────────────┐
-│ PostgreSQL      │  Redis (cache)
-└─────────────────┘
-```
-
-## API Endpoints
-
-### A2A
-
-| Method | Endpoint               | Description                          |
-|--------|------------------------|--------------------------------------|
-| POST   | /api/a2a/generate      | Generate micro-app from prompt       |
-| GET    | /api/a2a/render?prompt=| Magic link: returns HTML + iframe     |
-
-### Components
-
-| Method | Endpoint                         | Description                 |
-|--------|----------------------------------|-----------------------------|
-| GET    | /api/components                  | List components             |
-| GET    | /api/components/{id}/iframe     | Get iframe HTML            |
-| POST   | /api/components/{id}/data        | Data endpoint for iframes  |
-| POST   | /api/components/{id}/data/swap   | Store real data (Data Bridge) |
-
-### Chat
-
-| Method | Endpoint                  | Description                                      |
-|--------|---------------------------|--------------------------------------------------|
-| POST   | /api/chat/message         | Send message, get response (non-streaming)      |
-| POST   | /api/chat/message/stream  | Send message, get SSE stream (progress + done)   |
-
-Chat supports `component_id` in the request body to iterate on an existing microapp.
+---
 
 ## Setup
 
@@ -155,12 +477,15 @@ Chat supports `component_id` in the request body to iterate on an existing micro
 
 - Node.js 20+
 - Python 3.11+
-- Docker & Docker Compose
-- PostgreSQL, Redis
+- Docker + Docker Compose
 
 ### Environment
 
-Copy `.env.example` and set at minimum:
+```bash
+cp .env.example .env
+```
+
+Minimum required:
 
 ```env
 DATABASE_URL=postgresql://postgres:password@localhost:5432/spark
@@ -168,20 +493,67 @@ REDIS_URL=redis://localhost:6379
 OPENAI_API_KEY=sk-...
 ```
 
-See [.env.example](.env.example) for LLM Gateway options.
+Full options in [.env.example](.env.example).
 
-### Local Development
+### Local development
+
+```bash
+# Start postgres + redis
+docker-compose up -d postgres redis
+
+# Backend
+cd backend
+pip install -r requirements.txt
+DATABASE_MODE=postgres uvicorn app.main:app --reload
+
+# Frontend
+cd frontend
+npm install && npm run dev
+```
+
+Or run everything via Docker:
 
 ```bash
 docker-compose up --build
-# Or manual: backend with uvicorn, frontend with npm run dev
 ```
+
+### Migrations
+
+`database/migrations/` is mounted as `docker-entrypoint-initdb.d` — migrations run automatically on first start. For manual runs:
+
+```bash
+psql $DATABASE_URL -f database/migrations/20260101000000_initial.sql
+psql $DATABASE_URL -f database/migrations/20260322000000_add_pinned_apps.sql
+```
+
+---
+
+## Component Templates
+
+9 pre-built templates for fast generation without cold-start latency:
+
+| Template | Category | Description |
+|---|---|---|
+| `StatCard` | card | KPI metric card with trend indicator |
+| `DataTable` | table | Filterable, sortable table with search |
+| `LineChart` | chart | Time-series line chart |
+| `BarChart` | chart | Categorical bar chart |
+| `DonutChart` | chart | Donut / pie with legend |
+| `HeatmapChart` | chart | Activity heatmap (GitHub-style) |
+| `MixedChart` | chart | Bar + line combo |
+| `ListWithSearch` | list | Searchable entity list |
+| `MetricsDashboard` | dashboard | Multi-KPI dashboard |
+
+---
 
 ## Security
 
-- **Code validation**: AST scan, forbidden APIs (`window`, `fetch`, `eval`, etc.)
-- **Sandboxing**: Components run in iframe with `sandbox="allow-scripts allow-same-origin"`
-- **Auth headers**: `X-Tenant-ID`, `X-User-ID` (placeholder—integrate with your auth)
+- **AST validation**: Generated code is scanned before compilation. Forbidden APIs (`window`, `fetch`, `eval`, `XMLHttpRequest`, `document.cookie`) are rejected.
+- **Sandboxed execution**: Components run in `<iframe sandbox="allow-scripts allow-same-origin">`.
+- **Multi-tenant isolation**: PostgreSQL RLS policies scope all queries to `(tenant_id, user_id)`.
+- **Auth**: Plug in your own JWT verification middleware. The `X-Tenant-ID` / `X-User-ID` values are trusted after verification.
+
+---
 
 ## Documentation
 
@@ -190,9 +562,11 @@ docker-compose up --build
 - [Content-Addressable Generation (CAG)](docs/CAG.md)
 - [Integration Guide](docs/INTEGRATION.md)
 
+---
+
 ## License
 
 **Dual license**
 
-- **AGPLv3**: Use in open-source projects. If you run Spark as a service and integrate with your app, you must open-source your connecting application.
-- **Commercial**: Contact [enterprise@spark.ai](mailto:enterprise@spark.ai) for proprietary use.
+- **AGPLv3**: Free for open-source use. If you run Spark as a service and integrate with your application, you must open-source your connecting application.
+- **Commercial**: Contact [enterprise@spark.ai](mailto:enterprise@spark.ai) for proprietary / SaaS use.
