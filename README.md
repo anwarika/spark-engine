@@ -497,11 +497,15 @@ docker-compose up --build
 
 ### Migrations
 
-`database/migrations/` is mounted as `docker-entrypoint-initdb.d` — migrations run automatically on first start. For manual runs:
+`database/migrations/` is mounted as `docker-entrypoint-initdb.d` — migrations run automatically **only when the Postgres data volume is first created**. If you already had a volume from an older checkout, new SQL files are **not** re-run; apply them manually:
 
 ```bash
-psql $DATABASE_URL -f database/migrations/20260101000000_initial.sql
+# From host (compose example)
+docker compose exec -T postgres psql -U postgres -d spark -f /docker-entrypoint-initdb.d/20260322120000_dashboard_layouts.sql
+
+# Or with DATABASE_URL
 psql $DATABASE_URL -f database/migrations/20260322000000_add_pinned_apps.sql
+psql $DATABASE_URL -f database/migrations/20260322120000_dashboard_layouts.sql
 ```
 
 ---

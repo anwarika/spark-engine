@@ -16,6 +16,12 @@ CREATE INDEX IF NOT EXISTS idx_dashboard_layouts_tenant_user
 
 ALTER TABLE dashboard_layouts ENABLE ROW LEVEL SECURITY;
 
+-- Idempotent re-runs (policies are not IF NOT EXISTS in older PG; drop first)
+DROP POLICY IF EXISTS "Users can view own dashboard layouts" ON dashboard_layouts;
+DROP POLICY IF EXISTS "Users can insert own dashboard layouts" ON dashboard_layouts;
+DROP POLICY IF EXISTS "Users can update own dashboard layouts" ON dashboard_layouts;
+DROP POLICY IF EXISTS "Users can delete own dashboard layouts" ON dashboard_layouts;
+
 CREATE POLICY "Users can view own dashboard layouts"
   ON dashboard_layouts FOR SELECT
   USING (tenant_id = current_setting('app.tenant_id', true));
