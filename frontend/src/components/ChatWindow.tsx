@@ -3,6 +3,12 @@ import { useChatStore } from '../store/chatStore';
 import { useChat } from '../hooks/useChat';
 import { MessageBubble } from './MessageBubble';
 
+const SUGGESTED_PROMPTS = [
+  'Create a table showing sales data with sorting',
+  'Build a KPI dashboard with 3 metrics',
+  'Make a filterable product list',
+];
+
 export const ChatWindow: React.FC = () => {
   const [input, setInput] = useState('');
   const { messages, isLoading, error, clearMessages, generation } = useChatStore();
@@ -46,19 +52,23 @@ export const ChatWindow: React.FC = () => {
             <div className="text-center max-w-md">
               <h2 className="text-2xl font-bold mb-4">Welcome to Spark! ⚡</h2>
               <p className="text-base-content/70 mb-6">
-                I can generate interactive Solid.js micro-apps for data visualization,
+                Generate interactive Solid.js micro-apps for data visualization,
                 dashboards, and more. Just describe what you need!
               </p>
               <div className="space-y-2 text-sm text-left">
-                <div className="alert alert-info">
-                  <span>💡 Try: "Create a table showing sales data with sorting"</span>
-                </div>
-                <div className="alert alert-info">
-                  <span>💡 Try: "Build a KPI dashboard with 3 metrics"</span>
-                </div>
-                <div className="alert alert-info">
-                  <span>💡 Try: "Make a filterable product list"</span>
-                </div>
+                {SUGGESTED_PROMPTS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    className="btn btn-ghost btn-block justify-start border border-base-300 hover:bg-base-200 h-auto min-h-0 py-2 px-3 normal-case font-normal whitespace-normal text-left outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0 ring-offset-0 shadow-none focus:shadow-none focus-visible:shadow-none"
+                    onClick={() => void sendMessage(prompt)}
+                    disabled={isLoading}
+                  >
+                    <span>
+                      💡 Try: &quot;{prompt}&quot;
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
           </div>
