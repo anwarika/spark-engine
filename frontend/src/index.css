@@ -53,3 +53,12 @@ code {
     transform: translateY(0);
   }
 }
+
+.tab-indicator {
+  position: absolute;
+  bottom: 0;
+  height: 2px;
+  background-color: oklch(var(--p));
+  transition: left 300ms ease, width 300ms ease;
+  pointer-events: none;
+}

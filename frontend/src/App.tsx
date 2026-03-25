@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useChatStore } from './store/chatStore';
 import { usePinStore } from './store/pinStore';
 import { ChatWindow } from './components/ChatWindow';
@@ -11,6 +11,8 @@ type MainTab = 'chat' | 'components' | 'pinned' | 'dashboard';
 
 function App() {
   const [activeTab, setActiveTab] = useState<MainTab>('chat');
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [indicator, setIndicator] = useState({ left: 0, width: 0 });
   const studioComponentId = useChatStore((s) => s.studioComponentId);
   const pinnedApps = usePinStore((s) => s.pinnedApps);
   const selectedPinId = usePinStore((s) => s.selectedPinId);
@@ -21,6 +23,23 @@ function App() {
   useEffect(() => {
     refreshPinnedApps();
   }, [refreshPinnedApps]);
+
+  useLayoutEffect(() => {
+    const update = () => {
+      const container = tabsRef.current;
+      if (!container) return;
+      const activeBtn = container.querySelector('[data-active="true"]') as HTMLElement | null;
+      if (activeBtn) {
+        setIndicator({
+          left: activeBtn.offsetLeft,
+          width: activeBtn.offsetWidth,
+        });
+      }
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [activeTab, pinnedApps.length]);
 
   if (studioComponentId) {
     return <StudioView />;
@@ -34,24 +53,27 @@ function App() {
           <span className="text-sm ml-4 opacity-70">Micro App Generator</span>
         </div>
         <div className="flex-none">
-          <div className="tabs tabs-boxed">
+          <div ref={tabsRef} className="tabs relative border-b border-base-300">
             <button
               type="button"
-              className={`tab ${activeTab === 'chat' ? 'tab-active' : ''}`}
+              className={`tab ${activeTab === 'chat' ? 'font-semibold' : 'opacity-70'}`}
+              data-active={activeTab === 'chat' || undefined}
               onClick={() => setActiveTab('chat')}
             >
               Chat
             </button>
             <button
               type="button"
-              className={`tab ${activeTab === 'components' ? 'tab-active' : ''}`}
+              className={`tab ${activeTab === 'components' ? 'font-semibold' : 'opacity-70'}`}
+              data-active={activeTab === 'components' || undefined}
               onClick={() => setActiveTab('components')}
             >
               Components
             </button>
             <button
               type="button"
-              className={`tab ${activeTab === 'pinned' ? 'tab-active' : ''}`}
+              className={`tab ${activeTab === 'pinned' ? 'font-semibold' : 'opacity-70'}`}
+              data-active={activeTab === 'pinned' || undefined}
               onClick={() => setActiveTab('pinned')}
             >
               Pinned
@@ -61,11 +83,17 @@ function App() {
             </button>
             <button
               type="button"
-              className={`tab ${activeTab === 'dashboard' ? 'tab-active' : ''}`}
+              className={`tab ${activeTab === 'dashboard' ? 'font-semibold' : 'opacity-70'}`}
+              data-active={activeTab === 'dashboard' || undefined}
               onClick={() => setActiveTab('dashboard')}
             >
               Dashboard
             </button>
+            <div
+              className="tab-indicator"
+              style={{ left: indicator.left, width: indicator.width }}
+              aria-hidden
+            />
           </div>
         </div>
       </div>
