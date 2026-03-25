@@ -34,7 +34,7 @@ function App() {
           <span className="text-sm ml-4 opacity-70">Micro App Generator</span>
         </div>
         <div className="flex-none">
-          <div className="tabs tabs-boxed">
+          <div className="tabs tabs-bordered">
             <button
               type="button"
               className={`tab ${activeTab === 'chat' ? 'tab-active' : ''}`}

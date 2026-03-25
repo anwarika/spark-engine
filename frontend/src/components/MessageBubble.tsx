@@ -54,8 +54,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
   return (
     <div className={`chat ${isUser ? 'chat-end' : 'chat-start'} message-bubble`}>
       <div className="chat-image avatar">
-        <div className="w-10 rounded-full bg-neutral text-neutral-content flex items-center justify-center">
-          {isUser ? '👤' : '🤖'}
+        <div className="w-10 rounded-full bg-neutral text-neutral-content flex items-center justify-center text-xs font-semibold">
+          {isUser ? 'You' : 'AI'}
         </div>
       </div>
       <div className="chat-header mb-1">
