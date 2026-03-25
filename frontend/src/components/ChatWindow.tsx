@@ -34,18 +34,6 @@ export const ChatWindow: React.FC = () => {
 
   return (
     <div className="chat-container bg-base-100 h-full flex flex-col">
-      <div className="flex-none p-4 bg-base-200 border-b border-base-300">
-        <div className="max-w-4xl mx-auto flex justify-end">
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={clearMessages}
-            disabled={messages.length === 0}
-          >
-            Clear Chat
-          </button>
-        </div>
-      </div>
-
       <div className="messages-container flex-1 overflow-y-auto">
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full">
@@ -164,6 +152,32 @@ export const ChatWindow: React.FC = () => {
                 'Send'
               )}
             </button>
+            {messages.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={clearMessages}
+                disabled={isLoading}
+                title="New chat"
+                aria-label="New chat"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+              </button>
+            )}
           </div>
         </form>
       </div>
