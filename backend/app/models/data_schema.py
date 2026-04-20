@@ -27,6 +27,14 @@ class DataSwapRequest(BaseModel):
     """Request body for POST /components/{id}/data/swap."""
     mode: Literal["sample", "real"] = "sample"
     data: Optional[Dict[str, Any]] = None
+    ttl_seconds: int = Field(default=3600, ge=60, le=86400,
+                             description="How long to cache the data (60s–24h). Default 1 hour.")
+
+
+class DataMergeRequest(BaseModel):
+    """Request body for PATCH /components/{id}/data — merge new keys into existing real data."""
+    data: Dict[str, Any]
+    ttl_seconds: int = Field(default=3600, ge=60, le=86400)
 
 
 def validate_data_shape(data: Dict[str, Any], expected_keys: List[str]) -> Dict[str, Any]:

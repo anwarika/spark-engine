@@ -4,9 +4,10 @@ import { useChat } from '../hooks/useChat';
 import { MessageBubble } from './MessageBubble';
 
 const SUGGESTED_PROMPTS = [
-  'Create a table showing sales data with sorting',
-  'Build a KPI dashboard with 3 metrics',
-  'Make a filterable product list',
+  'Build a sales pipeline dashboard with deal stages and win rates',
+  'Show SaaS metrics: MRR, churn rate, and net retention',
+  'Create a filterable product catalog with price and stock sorting',
+  'Make a marketing campaign performance dashboard',
 ];
 
 export const ChatWindow: React.FC = () => {

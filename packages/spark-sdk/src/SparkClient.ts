@@ -26,6 +26,15 @@ import type {
   UpdatePinMetaRequest,
 } from "./types";
 
+import {
+  SparkError,
+  SparkTimeoutError,
+  classifyError,
+} from "./errors";
+
+// Re-export for consumers who import from the client module directly
+export { SparkError } from "./errors";
+
 function buildToken(tenantId: string, userId: string): string {
   // base64(tenantId:userId) — matches the middleware's _parse_bearer logic
   const raw = `${tenantId}:${userId}`;
@@ -44,13 +53,20 @@ export class SparkClient {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
     this.timeoutMs = config.timeoutMs ?? 30_000;
 
-    const token = config.token ?? buildToken(config.tenantId, config.userId);
+    // API key (sk_live_*) takes precedence over legacy token/headers
+    const authToken =
+      config.apiKey ??
+      config.token ??
+      (config.tenantId && config.userId
+        ? buildToken(config.tenantId, config.userId)
+        : null);
+
     this.headers = {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      // Keep explicit headers as fallback for same-origin deployments
-      "X-Tenant-ID": config.tenantId,
-      "X-User-ID": config.userId,
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      // Legacy fallback headers (no-op when API key is set)
+      ...(config.tenantId ? { "X-Tenant-ID": config.tenantId } : {}),
+      ...(config.userId ? { "X-User-ID": config.userId } : {}),
     };
   }
 
@@ -68,7 +84,9 @@ export class SparkClient {
     body?: unknown,
   ): Promise<T> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, this.timeoutMs);
 
     try {
       const res = await fetch(this.url(path), {
@@ -84,11 +102,18 @@ export class SparkClient {
           const json = await res.json();
           detail = json.detail ?? json.message ?? detail;
         } catch {}
-        throw new SparkError(res.status, detail);
+        throw classifyError(res.status, detail, res.headers);
       }
 
       if (res.status === 204) return undefined as T;
       return res.json() as Promise<T>;
+    } catch (err) {
+      if (err instanceof SparkError) throw err;
+      // AbortError → SparkTimeoutError
+      if ((err as Error)?.name === "AbortError") {
+        throw new SparkTimeoutError(this.timeoutMs);
+      }
+      throw err;
     } finally {
       clearTimeout(timer);
     }
@@ -101,6 +126,30 @@ export class SparkClient {
   /** Generate a new micro-app from a prompt. */
   async generate(req: GenerateRequest): Promise<GenerateResponse> {
     return this.fetch<GenerateResponse>("POST", "/api/a2a/generate", req);
+  }
+
+  /**
+   * Generate a micro-app and return the iframe URL directly.
+   *
+   * Combines generate() + iframeUrl() into a single call — the most common
+   * pattern for chat apps. Throws if generation fails.
+   *
+   *   const url = await spark.generateAndWait({ prompt });
+   *   // url is ready to embed immediately
+   */
+  async generateAndWait(req: GenerateRequest): Promise<string & { componentId: string }> {
+    const result = await this.generate(req);
+    if (result.status !== "success" || !result.component_id) {
+      throw new (await import("./errors")).SparkGenerationError(
+        result.message ?? "Generation did not return a component",
+      );
+    }
+    const url = (result.microapp_url ?? this.iframeUrl(result.component_id)) as string & {
+      componentId: string;
+    };
+    // Attach componentId as a non-enumerable property for convenience
+    Object.defineProperty(url, "componentId", { value: result.component_id });
+    return url;
   }
 
   // ------------------------------------------------------------------
@@ -190,24 +239,39 @@ export class SparkClient {
     componentId: string,
     data: unknown,
     mode: "real" | "sample" = "real",
+    ttlSeconds?: number,
   ): Promise<void> {
     await this.fetch("POST", `/api/components/${componentId}/data/swap`, {
       mode,
       data,
+      ...(ttlSeconds !== undefined ? { ttl_seconds: ttlSeconds } : {}),
     });
   }
-}
 
-// ------------------------------------------------------------------
-// Error class
-// ------------------------------------------------------------------
+  // ------------------------------------------------------------------
+  // API Key management (requires 'admin' scope)
+  // ------------------------------------------------------------------
 
-export class SparkError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly detail: string,
-  ) {
-    super(`Spark API error ${status}: ${detail}`);
-    this.name = "SparkError";
+  /** Create a new API key. The raw key is returned ONCE — store it safely. */
+  async createApiKey(opts?: {
+    label?: string;
+    scopes?: string[];
+    rateLimitRpm?: number;
+  }): Promise<{ id: string; key: string; label: string; scopes: string[] }> {
+    return this.fetch("POST", "/api/keys", {
+      label: opts?.label ?? "Default Key",
+      scopes: opts?.scopes ?? ["generate", "read"],
+      rate_limit_rpm: opts?.rateLimitRpm ?? 60,
+    });
+  }
+
+  /** List all active API keys for the current tenant/user. */
+  async listApiKeys(): Promise<Array<{ id: string; label: string; key_prefix: string; scopes: string[] }>> {
+    return this.fetch("GET", "/api/keys");
+  }
+
+  /** Revoke an API key by its ID. */
+  async revokeApiKey(keyId: string): Promise<void> {
+    return this.fetch("DELETE", `/api/keys/${keyId}`);
   }
 }

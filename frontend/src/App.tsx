@@ -6,11 +6,13 @@ import { ComponentsView } from './components/ComponentsView';
 import { StudioView } from './components/StudioView';
 import { DashboardCanvas } from './components/DashboardCanvas';
 import { PinnedAppPanel } from './components/PinnedAppPanel';
+import { Playground } from './components/Playground';
+import { AdminDashboard } from './components/AdminDashboard';
 
-type MainTab = 'chat' | 'components' | 'pinned' | 'dashboard';
+type MainTab = 'playground' | 'chat' | 'components' | 'pinned' | 'dashboard' | 'admin';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<MainTab>('chat');
+  const [activeTab, setActiveTab] = useState<MainTab>('playground');
   const tabsRef = useRef<HTMLDivElement>(null);
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
   const studioComponentId = useChatStore((s) => s.studioComponentId);
@@ -56,6 +58,14 @@ function App() {
           <div ref={tabsRef} className="tabs relative border-b border-base-300">
             <button
               type="button"
+              className={`tab ${activeTab === 'playground' ? 'font-semibold' : 'opacity-70'}`}
+              data-active={activeTab === 'playground' || undefined}
+              onClick={() => setActiveTab('playground')}
+            >
+              Playground
+            </button>
+            <button
+              type="button"
               className={`tab ${activeTab === 'chat' ? 'font-semibold' : 'opacity-70'}`}
               data-active={activeTab === 'chat' || undefined}
               onClick={() => setActiveTab('chat')}
@@ -88,6 +98,14 @@ function App() {
               onClick={() => setActiveTab('dashboard')}
             >
               Dashboard
+            </button>
+            <button
+              type="button"
+              className={`tab ${activeTab === 'admin' ? 'font-semibold' : 'opacity-70'}`}
+              data-active={activeTab === 'admin' || undefined}
+              onClick={() => setActiveTab('admin')}
+            >
+              Admin
             </button>
             <div
               className="tab-indicator"
@@ -130,10 +148,12 @@ function App() {
       )}
 
       <div className="flex-1 overflow-hidden min-h-0">
+        {activeTab === 'playground' && <Playground />}
         {activeTab === 'chat' && <ChatWindow />}
         {activeTab === 'components' && <ComponentsView />}
         {activeTab === 'pinned' && <PinnedAppPanel />}
         {activeTab === 'dashboard' && <DashboardCanvas />}
+        {activeTab === 'admin' && <AdminDashboard />}
       </div>
     </div>
   );

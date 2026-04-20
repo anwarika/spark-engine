@@ -3,6 +3,7 @@ from app.models import ChatResponse
 from app.config import settings
 from app.services.prompt_cache import PromptCache
 from app.services.llm_gateway import LLMGateway, LLMConfig
+import asyncio
 import logging
 import json
 import re
@@ -50,6 +51,46 @@ def _config_from_settings() -> LLMConfig:
         fallback_api_key=settings.llm_fallback_api_key,
         fallback_base_url=settings.llm_fallback_base_url,
     )
+
+
+_LLM_TIMEOUT_SECONDS = 45
+_LLM_MAX_RETRIES = 2
+_LLM_RETRY_BASE_DELAY = 1.5  # seconds; doubles on each retry
+
+
+async def _llm_call_with_retry(gateway: "LLMGateway", messages: list, **kwargs) -> Any:
+    """
+    Call gateway.chat() with a timeout and exponential-backoff retry.
+
+    Raises the last exception if all retries are exhausted.
+    Retries on transient errors (timeouts, 5xx, rate limits from provider).
+    Does NOT retry on auth errors (4xx from OpenAI side) to avoid burning tokens.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(_LLM_MAX_RETRIES + 1):
+        try:
+            return await asyncio.wait_for(
+                gateway.chat(messages, **kwargs),
+                timeout=_LLM_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as e:
+            last_exc = e
+            logger.warning(f"LLM call timed out (attempt {attempt + 1}/{_LLM_MAX_RETRIES + 1})")
+        except Exception as e:
+            err_str = str(e).lower()
+            # Only retry on transient / server-side errors
+            if any(t in err_str for t in ("timeout", "502", "503", "504", "rate limit", "overloaded")):
+                last_exc = e
+                logger.warning(f"LLM transient error (attempt {attempt + 1}): {e}")
+            else:
+                raise  # auth / validation errors — fail immediately
+
+        if attempt < _LLM_MAX_RETRIES:
+            delay = _LLM_RETRY_BASE_DELAY * (2 ** attempt)
+            logger.info(f"Retrying LLM call in {delay:.1f}s…")
+            await asyncio.sleep(delay)
+
+    raise last_exc  # type: ignore[misc]
 
 
 class LLMService:
@@ -826,7 +867,8 @@ Response format (JSON, no markdown fences):
         )
 
         try:
-            completion = await gateway.chat(
+            completion = await _llm_call_with_retry(
+                gateway,
                 messages,
                 response_format={"type": "json_object"},
             )
@@ -959,7 +1001,8 @@ Response format (JSON only, no markdown fences):
         )
 
         try:
-            completion = await gateway.chat(
+            completion = await _llm_call_with_retry(
+                gateway,
                 messages,
                 response_format={"type": "json_object"},
                 temperature=0.15,  # Fix 2: deterministic edits

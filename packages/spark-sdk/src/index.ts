@@ -1,6 +1,16 @@
 // Core client
 export { SparkClient, SparkError } from "./SparkClient";
 
+// Typed errors
+export {
+  SparkError as SparkBaseError,
+  SparkAuthError,
+  SparkPermissionError,
+  SparkRateLimitError,
+  SparkGenerationError,
+  SparkTimeoutError,
+} from "./errors";
+
 // React components
 export { SparkWidget } from "./SparkWidget";
 export type { SparkWidgetProps, SparkWidgetHandle } from "./SparkWidget";
