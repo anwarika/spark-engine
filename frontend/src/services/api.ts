@@ -11,12 +11,17 @@ import type {
   DashboardLayoutItem,
 } from '../types';
 
+// Well-known UUIDs for unauthenticated / dev-mode requests.
+// Must match DEFAULT_TENANT_ID / DEFAULT_USER_ID in backend/app/middleware/auth.py.
+export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
+export const DEFAULT_USER_ID   = '00000000-0000-0000-0000-000000000002';
+
 const api = axios.create({
   baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
-    'X-Tenant-ID': 'default-tenant',
-    'X-User-ID': 'default-user'
+    'X-Tenant-ID': DEFAULT_TENANT_ID,
+    'X-User-ID': DEFAULT_USER_ID,
   }
 });
 
@@ -28,8 +33,8 @@ export const chatAPI = {
   ): Promise<ChatResponse> => {
     const body: Record<string, string> = {
       session_id: sessionId,
-      tenant_id: 'default-tenant',
-      user_id: 'default-user',
+      tenant_id: DEFAULT_TENANT_ID,
+      user_id: DEFAULT_USER_ID,
       message
     };
     if (componentId) {
@@ -54,7 +59,7 @@ export const componentAPI = {
   submitFeedback: async (componentId: string, rating: 1 | 5, feedbackText: string = '') => {
     await api.put(`/components/${componentId}/feedback`, {
       component_id: componentId,
-      user_id: 'default-user',
+      user_id: DEFAULT_USER_ID,
       rating,
       feedback_text: feedbackText
     });

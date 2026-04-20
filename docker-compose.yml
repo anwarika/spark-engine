@@ -27,7 +27,7 @@ services:
       redis:
         condition: service_healthy
       postgres:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./backend/app:/app/app
       - /app/__pycache__

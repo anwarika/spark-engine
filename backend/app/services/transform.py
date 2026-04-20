@@ -48,7 +48,8 @@ Your job: given a dataset (a Python dict called `data`) and a plain-English desc
 transformation, write minimal Python code that computes the requested result.
 
 RULES (non-negotiable):
-1. You may ONLY import from this list: json, datetime, re, math, collections
+1. You may ONLY import from this list: json, datetime, re, math
+   (collections, itertools, functools are NOT available — use plain dicts/lists instead)
 2. Input is always available as a variable called `data` (already a Python dict — do not parse it)
 3. You MUST assign your final output to a variable called `result`
 4. `result` MUST be a plain Python dict with JSON-serializable values (str, int, float, list, dict, bool, None)
@@ -66,11 +67,10 @@ Return ONLY the raw Python code. No markdown fences, no explanation, no comments
 EXAMPLE:
 Transform description: "Compute total revenue by product category, top 10"
 
-from collections import defaultdict
-by_cat = defaultdict(float)
+by_cat = {}
 for order in data.get("orders", []):
     cat = order.get("category", "Unknown")
-    by_cat[cat] += order.get("revenue", 0)
+    by_cat[cat] = by_cat.get(cat, 0) + order.get("revenue", 0)
 result = {
     "revenue_by_category": sorted(
         [{"category": k, "revenue": round(v, 2)} for k, v in by_cat.items()],

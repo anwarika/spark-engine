@@ -170,6 +170,55 @@ DATA FIELD GUIDANCE FOR SAAS PROFILE:
   derive expansion as mrr * 0.08, churn as mrr * churn_rate — kpi_monthly has all these fields
 - For KPI CARDS: always read from kpi_monthly[last] for current period values
 
+DATA FIELD GUIDANCE FOR SALES PROFILE (profile:'sales'):
+Top-level keys: reps, accounts, contacts, opportunities, opportunity_stage_history,
+                activities, bookings, quota_monthly, metrics, summary
+- opportunities: flat array — fields: {id, account_id, rep_id, created_at, close_date,
+  stage, probability, amount, forecast_category}
+  stages: "Prospecting","Qualified","Discovery","Proposal","Negotiation","Closed Won","Closed Lost"
+- reps: flat array — fields: {id, name, team, region, segment}
+  ⚠️ REPS DO NOT HAVE AN .opportunities FIELD. Always join manually:
+    const repOpps = d.opportunities.filter(o => o.rep_id === rep.id);
+- bookings: flat array of won deals — fields: {id, opportunity_id, booking_date, amount, type}
+  type values: "new", "expansion", "renewal"
+- quota_monthly: flat array — fields: {rep_id, month, quota}  (join on rep_id + month)
+- metrics (pipeline_daily): daily snapshot — fields: {date, open_opps, pipeline_amount,
+  weighted_pipeline, bookings}  ← use for trend charts
+- summary: {open_opps, pipeline_amount, bookings_total, win_rate}  ← use for KPI cards
+- For PIPELINE FUNNEL: group opportunities by stage, sum amount per stage
+  const byStage = d.opportunities.reduce((acc,o) => { acc[o.stage]=(acc[o.stage]||0)+o.amount; return acc; }, {});
+- For BOOKINGS BY REP: join bookings → opportunities → rep
+  const repBookings = d.reps.map(r => ({
+    name: r.name,
+    bookings: d.bookings.filter(b => d.opportunities.find(o => o.id===b.opportunity_id && o.rep_id===r.id))
+                        .reduce((s,b) => s+b.amount, 0)
+  }));
+- For WIN RATE BY REP: filter opportunities where stage is "Closed Won" or "Closed Lost"
+  (opportunities have rep_id — NOT rep.opportunities)
+
+DATA FIELD GUIDANCE FOR ECOMMERCE PROFILE (profile:'ecommerce'):
+Top-level keys: products, users, orders, order_items, sales, tasks, metrics, summary
+- orders: {id, customer_id, customer, total, status, date, region, channel}
+- metrics: daily — {date, pageviews, users, revenue, conversions, orders, sessions}
+- summary: {total_revenue, total_orders, active_users, avg_order_value}
+
+DATA FIELD GUIDANCE FOR MARKETING PROFILE (profile:'marketing'):
+Top-level keys: campaigns, ad_spend_daily, leads, touchpoints, attribution, metrics, summary
+- metrics: daily — {date, spend, impressions, clicks, leads, opportunities, cpc, cpl}
+- campaigns: {id, name, channel, platform, objective, status}
+- ad_spend_daily: {date, campaign_id, channel, spend, impressions, clicks, leads, opportunities}
+
+DATA FIELD GUIDANCE FOR FINANCE PROFILE (profile:'finance'):
+Top-level keys: gl_accounts, vendors, customers, invoices, transactions, pnl_monthly, metrics
+- pnl_monthly: {month, revenue, cogs, opex, gross_profit, gross_margin, ebitda}
+- metrics: daily — {date, revenue, cogs, opex, gross_profit}
+
+⚠️ DEFENSIVE DATA ACCESS — ALWAYS use these patterns (data arrives async, arrays may be empty):
+- Always guard arrays: (d.opportunities || []).filter(...)
+- Always use optional chaining for nested access: d?.summary?.win_rate ?? 0
+- Never call .map() / .filter() / .reduce() on a value without ensuring it is an array first
+- For resource data: const d = apiData() || {}; const opps = d.opportunities || [];
+
 ⚠️ SYNTHETIC DATA RULE: If the prompt asks for metrics that do NOT exist in any profile
 (e.g., latency, p95/p99, error rates, SLOs, traces, CPU/memory, uptime %)
 → DO NOT fetch from the API. Instead, define ALL data as hardcoded synthetic JS arrays at the top of the component.
