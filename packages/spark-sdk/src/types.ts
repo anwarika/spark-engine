@@ -9,15 +9,18 @@
 export interface SparkClientConfig {
   /** Base URL of the Spark backend, e.g. "https://spark.yourapp.com" */
   baseUrl: string;
-  /** Your tenant identifier */
-  tenantId: string;
-  /** The authenticated user's ID */
-  userId: string;
+  /**
+   * API key (sk_live_*) — recommended for production.
+   * When set, tenantId / userId / token are optional (they come from the key).
+   */
+  apiKey?: string;
+  /** Your tenant identifier (used when apiKey is not set) */
+  tenantId?: string;
+  /** The authenticated user's ID (used when apiKey is not set) */
+  userId?: string;
   /**
    * Optional pre-built Bearer token (base64(tenantId:userId)).
-   * If omitted the SDK builds it automatically from tenantId + userId.
-   * In production, mint this on your backend and pass it here so
-   * tenantId / userId are never hardcoded in the browser.
+   * Legacy — prefer apiKey for new integrations.
    */
   token?: string;
   /** Request timeout in ms (default 30 000) */

@@ -21,6 +21,8 @@ import React, {
   useImperativeHandle,
   forwardRef,
   useCallback,
+  useState,
+  Component,
 } from "react";
 
 import type {
@@ -40,6 +42,24 @@ import type {
 export interface SparkWidgetProps {
   /** Fully-resolved iframe URL from SparkClient.iframeUrl() */
   iframeUrl: string;
+
+  /**
+   * Show a loading skeleton while the iframe is initialising.
+   * Defaults to true. The skeleton disappears on spark:ready or spark:error.
+   */
+  showSkeleton?: boolean;
+
+  /**
+   * Render prop / component for the loading skeleton.
+   * If omitted, a minimal inline skeleton is rendered.
+   */
+  renderSkeleton?: () => React.ReactNode;
+
+  /**
+   * Render prop for the error state. Receives the error payload and a retry fn.
+   * If omitted, a minimal inline error message + retry button is rendered.
+   */
+  renderError?: (payload: SparkErrorPayload & { retry: () => void }) => React.ReactNode;
 
   // ---- Styling props (intentionally minimal) ----------------------
   /** className applied to the wrapping <div>. Default: none. */
@@ -90,6 +110,64 @@ export interface SparkWidgetHandle {
 // Component
 // ------------------------------------------------------------------
 
+// ------------------------------------------------------------------
+// Default skeleton / error UI (zero-dependency, inline styles only)
+// ------------------------------------------------------------------
+
+function DefaultSkeleton() {
+  return (
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        minHeight: 120,
+        background: "linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)",
+        backgroundSize: "200% 100%",
+        animation: "spark-shimmer 1.4s infinite",
+        borderRadius: 8,
+      }}
+    >
+      <style>{`@keyframes spark-shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
+    </div>
+  );
+}
+
+function DefaultError({ message, retry }: { message: string; retry: () => void }) {
+  return (
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        minHeight: 80,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        color: "#666",
+        fontSize: 14,
+        padding: 16,
+        textAlign: "center",
+      }}
+    >
+      <span>Something went wrong: {message}</span>
+      <button
+        onClick={retry}
+        style={{
+          padding: "4px 12px",
+          border: "1px solid #ccc",
+          borderRadius: 4,
+          background: "white",
+          cursor: "pointer",
+          fontSize: 13,
+        }}
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
 export const SparkWidget = forwardRef<SparkWidgetHandle, SparkWidgetProps>(
   function SparkWidget(props, ref) {
     const {
@@ -105,9 +183,14 @@ export const SparkWidget = forwardRef<SparkWidgetHandle, SparkWidgetProps>(
       onDataApplied,
       onEvent,
       title = "Spark micro-app",
+      showSkeleton = true,
+      renderSkeleton,
+      renderError,
     } = props;
 
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+    const [errorPayload, setErrorPayload] = useState<SparkErrorPayload | null>(null);
 
     // ------------------------------------------------------------------
     // Outbound — send a command to the iframe
@@ -152,11 +235,16 @@ export const SparkWidget = forwardRef<SparkWidgetHandle, SparkWidgetProps>(
         // Route to specific callbacks
         switch (msg.type) {
           case "spark:ready":
+            setLoadState("ready");
             onReady?.(msg.payload as SparkReadyPayload);
             break;
-          case "spark:error":
-            onError?.(msg.payload as SparkErrorPayload);
+          case "spark:error": {
+            const errPayload = msg.payload as SparkErrorPayload;
+            setLoadState("error");
+            setErrorPayload(errPayload);
+            onError?.(errPayload);
             break;
+          }
           case "spark:pinned":
             onPinned?.(msg.payload as SparkPinnedPayload);
             break;
@@ -180,8 +268,33 @@ export const SparkWidget = forwardRef<SparkWidgetHandle, SparkWidgetProps>(
     // Render
     // ------------------------------------------------------------------
 
+    const retry = useCallback(() => {
+      setLoadState("loading");
+      setErrorPayload(null);
+      // Reload the iframe by re-setting its src
+      if (iframeRef.current) {
+        iframeRef.current.src = iframeUrl;
+      }
+    }, [iframeUrl]);
+
     return (
-      <div className={className} style={style}>
+      <div className={className} style={{ position: "relative", ...style }}>
+        {/* Loading skeleton */}
+        {showSkeleton && loadState === "loading" && (
+          <div style={{ position: "absolute", inset: 0, zIndex: 1 }}>
+            {renderSkeleton ? renderSkeleton() : <DefaultSkeleton />}
+          </div>
+        )}
+
+        {/* Error overlay */}
+        {loadState === "error" && (
+          <div style={{ position: "absolute", inset: 0, zIndex: 1 }}>
+            {renderError
+              ? renderError({ ...(errorPayload ?? { message: "Unknown error" }), retry })
+              : <DefaultError message={errorPayload?.message ?? "Unknown error"} retry={retry} />}
+          </div>
+        )}
+
         <iframe
           ref={iframeRef}
           src={iframeUrl}
@@ -191,6 +304,8 @@ export const SparkWidget = forwardRef<SparkWidgetHandle, SparkWidgetProps>(
             border: "none",
             width: "100%",
             height: "100%",
+            opacity: loadState === "ready" ? 1 : 0,
+            transition: "opacity 0.2s ease",
             ...iframeStyle,
           }}
           sandbox="allow-scripts allow-same-origin"

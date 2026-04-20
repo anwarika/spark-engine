@@ -120,6 +120,44 @@ class Storage(ABC):
         pass
 
     # ------------------------------------------------------------------
+    # API Keys
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def create_api_key(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Insert a new API key row. Returns the created row."""
+        pass
+
+    @abstractmethod
+    async def get_api_key_by_hash(self, key_hash: str) -> Optional[Dict[str, Any]]:
+        """Look up a key by its SHA-256 hash. Returns row or None."""
+        pass
+
+    @abstractmethod
+    async def list_api_keys(self, tenant_id: str, user_id: str) -> List[Dict[str, Any]]:
+        """Return all non-revoked keys for a user."""
+        pass
+
+    @abstractmethod
+    async def revoke_api_key(self, key_id: str, tenant_id: str, user_id: str) -> bool:
+        """Set revoked_at = now(). Returns True if a row was updated."""
+        pass
+
+    @abstractmethod
+    async def touch_api_key(self, key_id: str):
+        """Update last_used_at = now() (fire-and-forget)."""
+        pass
+
+    # ------------------------------------------------------------------
+    # Audit Log
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def write_audit_log(self, entry: Dict[str, Any]):
+        """Append one entry to the audit_log table (best-effort)."""
+        pass
+
+    # ------------------------------------------------------------------
     # Dashboard layouts
     # ------------------------------------------------------------------
 
@@ -370,6 +408,62 @@ class SupabaseStorage(Storage):
         self._set_tenant(tenant_id)
         self.client.table("pinned_apps").delete().eq("id", pin_id).eq("tenant_id", tenant_id).eq("user_id", user_id).execute()
         return True
+
+    # ------------------------------------------------------------------
+    # API Keys — Supabase
+    # ------------------------------------------------------------------
+
+    async def create_api_key(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        self._set_tenant(data.get("tenant_id", ""))
+        result = self.client.table("api_keys").insert(data).execute()
+        return result.data[0] if result.data else {}
+
+    async def get_api_key_by_hash(self, key_hash: str) -> Optional[Dict[str, Any]]:
+        result = self.client.table("api_keys").select("*").eq("key_hash", key_hash).limit(1).execute()
+        return result.data[0] if result.data else None
+
+    async def list_api_keys(self, tenant_id: str, user_id: str) -> List[Dict[str, Any]]:
+        self._set_tenant(tenant_id)
+        result = (
+            self.client.table("api_keys")
+            .select("id, label, key_prefix, scopes, rate_limit_rpm, created_at, last_used_at, revoked_at")
+            .eq("tenant_id", tenant_id)
+            .eq("user_id", user_id)
+            .is_("revoked_at", "null")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return result.data if result.data else []
+
+    async def revoke_api_key(self, key_id: str, tenant_id: str, user_id: str) -> bool:
+        self._set_tenant(tenant_id)
+        result = (
+            self.client.table("api_keys")
+            .update({"revoked_at": datetime.utcnow().isoformat()})
+            .eq("id", key_id)
+            .eq("tenant_id", tenant_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return bool(result.data)
+
+    async def touch_api_key(self, key_id: str):
+        try:
+            self.client.table("api_keys").update({
+                "last_used_at": datetime.utcnow().isoformat()
+            }).eq("id", key_id).execute()
+        except Exception:
+            pass
+
+    async def write_audit_log(self, entry: Dict[str, Any]):
+        try:
+            self.client.table("audit_log").insert(entry).execute()
+        except Exception as e:
+            logger.warning(f"Audit log write failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Dashboard layouts — Supabase
+    # ------------------------------------------------------------------
 
     async def get_dashboard_layout(
         self, tenant_id: str, user_id: str, name: str = "default"
@@ -798,6 +892,109 @@ class PostgresStorage(Storage):
                 WHERE id = $1::uuid AND tenant_id = $2 AND user_id = $3
             """, pin_id, tenant_id, user_id)
             return "DELETE 0" not in result
+
+    # ------------------------------------------------------------------
+    # API Keys — Postgres
+    # ------------------------------------------------------------------
+
+    async def create_api_key(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        pool = await self._get_pool()
+        fields = list(data.keys())
+        values = list(data.values())
+        placeholders = [f"${i+1}" for i in range(len(values))]
+        stmt = f"""
+            INSERT INTO api_keys ({', '.join(fields)})
+            VALUES ({', '.join(placeholders)})
+            RETURNING *
+        """
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(stmt, *values)
+            if row:
+                d = dict(row)
+                d['id'] = str(d['id'])
+                d['created_at'] = d['created_at'].isoformat() if d.get('created_at') else None
+                d['last_used_at'] = d['last_used_at'].isoformat() if d.get('last_used_at') else None
+                d['revoked_at'] = d['revoked_at'].isoformat() if d.get('revoked_at') else None
+                return d
+            return {}
+
+    async def get_api_key_by_hash(self, key_hash: str) -> Optional[Dict[str, Any]]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM api_keys WHERE key_hash = $1 LIMIT 1", key_hash
+            )
+            if row:
+                d = dict(row)
+                d['id'] = str(d['id'])
+                d['created_at'] = d['created_at'].isoformat() if d.get('created_at') else None
+                d['last_used_at'] = d['last_used_at'].isoformat() if d.get('last_used_at') else None
+                d['revoked_at'] = d['revoked_at'].isoformat() if d.get('revoked_at') else None
+                return d
+            return None
+
+    async def list_api_keys(self, tenant_id: str, user_id: str) -> List[Dict[str, Any]]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT id, label, key_prefix, scopes, rate_limit_rpm,
+                       created_at, last_used_at, revoked_at
+                FROM api_keys
+                WHERE tenant_id = $1 AND user_id = $2 AND revoked_at IS NULL
+                ORDER BY created_at DESC
+            """, tenant_id, user_id)
+            result = []
+            for row in rows:
+                d = dict(row)
+                d['id'] = str(d['id'])
+                d['created_at'] = d['created_at'].isoformat() if d.get('created_at') else None
+                d['last_used_at'] = d['last_used_at'].isoformat() if d.get('last_used_at') else None
+                d['revoked_at'] = d['revoked_at'].isoformat() if d.get('revoked_at') else None
+                result.append(d)
+            return result
+
+    async def revoke_api_key(self, key_id: str, tenant_id: str, user_id: str) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("""
+                UPDATE api_keys
+                SET revoked_at = NOW()
+                WHERE id = $1::uuid AND tenant_id = $2 AND user_id = $3
+                  AND revoked_at IS NULL
+            """, key_id, tenant_id, user_id)
+            return "UPDATE 0" not in result
+
+    async def touch_api_key(self, key_id: str):
+        try:
+            pool = await self._get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1::uuid",
+                    key_id
+                )
+        except Exception:
+            pass
+
+    async def write_audit_log(self, entry: Dict[str, Any]):
+        try:
+            pool = await self._get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO audit_log
+                        (tenant_id, user_id, key_id, action, resource_id, ip, status_code, meta)
+                    VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8::jsonb)
+                """,
+                    entry.get("tenant_id"), entry.get("user_id"),
+                    entry.get("key_id"), entry.get("action"),
+                    entry.get("resource_id"), entry.get("ip"),
+                    entry.get("status_code"), json.dumps(entry.get("meta", {}))
+                )
+        except Exception as e:
+            logger.warning(f"Audit log write failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Dashboard layouts — Postgres
+    # ------------------------------------------------------------------
 
     async def get_dashboard_layout(
         self, tenant_id: str, user_id: str, name: str = "default"

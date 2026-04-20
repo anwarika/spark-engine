@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark — Plain JS Embed</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f8fafc; color: #1e293b; padding: 2rem; }
+    h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .subtitle { color: #64748b; font-size: 0.875rem; margin-bottom: 1.5rem; }
+    .form { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+    input {
+      flex: 1; padding: 0.5rem 1rem; border: 1px solid #cbd5e1;
+      border-radius: 0.75rem; font-size: 0.875rem; outline: none;
+    }
+    input:focus { border-color: #6366f1; box-shadow: 0 0 0 2px #6366f120; }
+    button {
+      padding: 0.5rem 1.25rem; background: #6366f1; color: white;
+      border: none; border-radius: 0.75rem; font-size: 0.875rem;
+      font-weight: 600; cursor: pointer;
+    }
+    button:hover { background: #4f46e5; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #status { font-size: 0.8rem; color: #64748b; min-height: 1.2rem; margin-bottom: 0.75rem; }
+    #widget-container {
+      width: 100%; height: 450px; border-radius: 1rem;
+      overflow: hidden; border: 1px solid #e2e8f0;
+      background: white; display: none; position: relative;
+    }
+    #widget-container.visible { display: block; }
+    #widget-container iframe { width: 100%; height: 100%; border: none; }
+    .skeleton {
+      position: absolute; inset: 0;
+      background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+    }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+    .presets { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+    .preset {
+      padding: 0.375rem 0.875rem; border: 1px solid #e2e8f0;
+      border-radius: 9999px; font-size: 0.8rem; cursor: pointer;
+      background: white; color: #475569;
+    }
+    .preset:hover { background: #f1f5f9; }
+  </style>
+</head>
+<body>
+  <h1>Spark — Plain JS Embed</h1>
+  <p class="subtitle">No framework needed. Generate a component and embed it with a fetch call.</p>
+
+  <!-- Quick presets -->
+  <div class="presets">
+    <button class="preset" onclick="generate('Build a sales pipeline dashboard')">Sales pipeline</button>
+    <button class="preset" onclick="generate('Show SaaS metrics: MRR, churn, and net retention')">SaaS metrics</button>
+    <button class="preset" onclick="generate('Create a marketing campaign performance table')">Marketing</button>
+    <button class="preset" onclick="generate('Build a finance P&L dashboard')">Finance P&L</button>
+  </div>
+
+  <!-- Custom prompt -->
+  <div class="form">
+    <input id="prompt" type="text" placeholder="Describe a dashboard or widget…" />
+    <button id="btn" onclick="submitForm()">Generate</button>
+  </div>
+
+  <div id="status"></div>
+
+  <!-- Widget container -->
+  <div id="widget-container">
+    <div class="skeleton" id="skeleton"></div>
+    <iframe id="widget-iframe" src="" title="Spark widget"></iframe>
+  </div>
+
+  <script>
+    // ── Config ──────────────────────────────────────────────────────────
+    const SPARK_BASE_URL = "http://localhost:8000";
+    // For production, set your API key:
+    // const SPARK_API_KEY = "YOUR_SPARK_API_KEY";
+    const SPARK_API_KEY = null; // uses header auth in dev
+
+    // ── Helpers ─────────────────────────────────────────────────────────
+    function setStatus(msg) {
+      document.getElementById("status").textContent = msg;
+    }
+
+    function setLoading(loading) {
+      document.getElementById("btn").disabled = loading;
+      document.getElementById("prompt").disabled = loading;
+      document.querySelectorAll(".preset").forEach(b => b.disabled = loading);
+    }
+
+    async function generate(prompt) {
+      if (!prompt) return;
+      document.getElementById("prompt").value = prompt;
+      setLoading(true);
+      setStatus("Generating…");
+
+      const headers = { "Content-Type": "application/json" };
+      if (SPARK_API_KEY) headers["Authorization"] = `Bearer ${SPARK_API_KEY}`;
+
+      try {
+        const res = await fetch(`${SPARK_BASE_URL}/api/a2a/generate`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ prompt }),
+        });
+
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json.detail ?? `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        if (data.status !== "success") throw new Error(data.status);
+
+        // Show widget
+        const container = document.getElementById("widget-container");
+        const iframe = document.getElementById("widget-iframe");
+        const skeleton = document.getElementById("skeleton");
+
+        container.classList.add("visible");
+        skeleton.style.display = "block";
+        iframe.style.opacity = "0";
+
+        iframe.src = data.microapp_url;
+        iframe.onload = () => {
+          skeleton.style.display = "none";
+          iframe.style.opacity = "1";
+          iframe.style.transition = "opacity 0.2s";
+        };
+
+        setStatus(`Component: ${data.component_id}`);
+      } catch (e) {
+        setStatus(`Error: ${e.message}`);
+        document.getElementById("widget-container").classList.remove("visible");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function submitForm() {
+      const p = document.getElementById("prompt").value.trim();
+      if (p) generate(p);
+    }
+
+    document.getElementById("prompt").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submitForm();
+    });
+  </script>
+</body>
+</html>

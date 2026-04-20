@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
@@ -8,7 +8,8 @@ from app.services.registry import RegistryService
 from app.services.compiler import ComponentCompiler
 from app.services.validator import CodeValidator
 from app.database import get_storage
-from app.middleware.auth import get_tenant_id, get_user_id
+from app.middleware.auth import get_tenant_id, get_user_id, require_scope
+from app.services.audit import audit_log
 import datetime
 import json
 import logging
@@ -36,7 +37,7 @@ class A2AResponse(BaseModel):
     missing_info: Optional[Dict[str, Any]] = None
     message: Optional[str] = None
 
-@router.post("/generate", response_model=A2AResponse)
+@router.post("/generate", response_model=A2AResponse, dependencies=[Depends(require_scope("generate"))])
 async def generate_microapp(request: Request, body: A2AGenerateRequest):
     tenant_id = get_tenant_id(request)
     user_id = get_user_id(request)
@@ -87,6 +88,7 @@ async def generate_microapp(request: Request, body: A2AGenerateRequest):
 
         base = str(request.base_url).rstrip("/")
         render_url = f"{base}/api/components/{component_id}/iframe"
+        audit_log(request, action="generate", resource_id=component_id, meta={"mode": "iterate"})
         return A2AResponse(
             status="success",
             component_id=component_id,
@@ -198,7 +200,8 @@ If the user provides data (e.g. "sales": [...]), status is "sufficient".
     # Removing trailing slash if present
     base = str(request.base_url).rstrip("/")
     render_url = f"{base}/api/components/{component_id}/iframe"
-    
+
+    audit_log(request, action="generate", resource_id=component_id)
     return A2AResponse(
         status="success",
         component_id=component_id,

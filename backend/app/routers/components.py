@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, HTTPException, Response
 from app.models import ComponentFeedback
-from app.models.data_schema import DataSwapRequest
+from app.models.data_schema import DataSwapRequest, DataMergeRequest
 from app.database import get_storage
 from app.middleware.auth import get_tenant_id, get_user_id
 from typing import Optional
@@ -462,18 +462,56 @@ async def swap_component_data(component_id: str, request: Request, body: Optiona
     mode = req.mode
     data = req.data
 
+    ttl = req.ttl_seconds if hasattr(req, "ttl_seconds") else 3600
+
     if mode == "real" and data is not None:
         redis_client = await get_redis()
         cache_key = f"databridge:{tenant_id}:{component_id}:real"
         if redis_client:
             try:
-                await redis_client.setex(cache_key, 3600, json.dumps(data))
-                logger.info(f"Stored real data for component={component_id}")
+                await redis_client.setex(cache_key, ttl, json.dumps(data))
+                logger.info(f"Stored real data for component={component_id} ttl={ttl}s")
             except Exception as e:
                 logger.warning(f"Redis write for data swap failed: {e}")
-        return {"status": "ok", "mode": "real"}
+        return {"status": "ok", "mode": "real", "ttl_seconds": ttl, "key_count": len(data)}
 
     return {"status": "ok", "mode": mode}
+
+
+@router.patch("/{component_id}/data")
+async def merge_component_data(component_id: str, request: Request, body: DataMergeRequest):
+    """
+    Data Bridge — merge new keys into existing real data without a full swap.
+    Useful for incremental updates: push only changed fields, keep the rest.
+    """
+    tenant_id = get_tenant_id(request)
+    storage = get_storage()
+
+    component = await storage.get_component(component_id, tenant_id)
+    if not component:
+        raise HTTPException(status_code=404, detail="Component not found")
+
+    redis_client = await get_redis()
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Data bridge requires Redis")
+
+    cache_key = f"databridge:{tenant_id}:{component_id}:real"
+    try:
+        existing_raw = await redis_client.get(cache_key)
+        existing: dict = json.loads(existing_raw) if existing_raw else {}
+        merged = {**existing, **body.data}
+        await redis_client.setex(cache_key, body.ttl_seconds, json.dumps(merged))
+        logger.info(f"Merged data for component={component_id} keys={list(body.data.keys())}")
+        return {
+            "status": "ok",
+            "mode": "real",
+            "ttl_seconds": body.ttl_seconds,
+            "total_keys": len(merged),
+            "merged_keys": list(body.data.keys()),
+        }
+    except Exception as e:
+        logger.error(f"Data merge failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to merge data")
 
 
 @router.put("/{component_id}/feedback")
