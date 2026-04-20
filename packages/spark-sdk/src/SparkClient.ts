@@ -249,6 +249,100 @@ export class SparkClient {
   }
 
   // ------------------------------------------------------------------
+  // Python Data Transform Layer
+  // ------------------------------------------------------------------
+
+  /**
+   * Transform raw data with an LLM-generated Python script (Monty sandbox)
+   * and cache the result in the Data Bridge for `componentId`.
+   *
+   * The component automatically renders with the transformed data — no
+   * code changes needed in the component itself.
+   *
+   * @param componentId  The component whose Data Bridge slot to populate.
+   * @param rawData      Any JSON-serializable object — the dataset to transform.
+   * @param transform    Plain-English description of what to compute,
+   *                     e.g. "Top 5 products by revenue this month".
+   * @param opts.ttlSeconds  How long to cache the result (60–86400, default 3600).
+   * @param opts.dryRun      If true, execute but do NOT cache. Returns result for inspection.
+   */
+  async transformData(
+    componentId: string,
+    rawData: Record<string, unknown>,
+    transform: string,
+    opts?: { ttlSeconds?: number; dryRun?: boolean },
+  ): Promise<{
+    outputKeys: string[];
+    executionMs: number;
+    cached: boolean;
+    ttlSeconds: number | null;
+  }> {
+    const res = await this.fetch<{
+      output_keys: string[];
+      execution_ms: number;
+      cached: boolean;
+      ttl_seconds: number | null;
+    }>("POST", `/api/components/${componentId}/data/transform`, {
+      raw_data: rawData,
+      transform,
+      ttl_seconds: opts?.ttlSeconds ?? 3600,
+      dry_run: opts?.dryRun ?? false,
+    });
+    return {
+      outputKeys: res.output_keys,
+      executionMs: res.execution_ms,
+      cached: res.cached,
+      ttlSeconds: res.ttl_seconds,
+    };
+  }
+
+  /**
+   * Run a transform against raw data WITHOUT caching — useful for previewing
+   * what the LLM-generated code does before committing to a component.
+   *
+   * Returns the generated Python code and the transformed output dict.
+   */
+  async previewTransform(
+    rawData: Record<string, unknown>,
+    transform: string,
+  ): Promise<{
+    code: string;
+    result: Record<string, unknown>;
+    outputKeys: string[];
+    executionMs: number;
+  }> {
+    const res = await this.fetch<{
+      code: string;
+      result: Record<string, unknown>;
+      output_keys: string[];
+      execution_ms: number;
+    }>("POST", "/api/transform/preview", {
+      raw_data: rawData,
+      transform,
+    });
+    return {
+      code: res.code,
+      result: res.result,
+      outputKeys: res.output_keys,
+      executionMs: res.execution_ms,
+    };
+  }
+
+  /**
+   * Retrieve the last Python transform code generated for a component.
+   * Only available while the cached result is still in Redis.
+   */
+  async getTransformCode(
+    componentId: string,
+  ): Promise<{ code: string; expiresInSeconds: number }> {
+    const res = await this.fetch<{ code: string; expires_in_seconds: number }>(
+      "GET",
+      `/api/components/${componentId}/data/transform/code`,
+    );
+    return { code: res.code, expiresInSeconds: res.expires_in_seconds };
+  }
+
+  // ------------------------------------------------------------------
   // API Key management (requires 'admin' scope)
   // ------------------------------------------------------------------
 

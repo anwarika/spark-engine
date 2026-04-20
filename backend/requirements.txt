@@ -10,3 +10,4 @@ openai==1.54.0
 httpx==0.27.0
 python-multipart==0.0.9
 esprima==4.0.1
+pydantic-monty>=0.1.0
