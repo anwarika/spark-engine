@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChatStore } from '../store/chatStore';
 import type { ProgressStatus, GenerationProgress } from '../store/chatStore';
+import { DEFAULT_TENANT_ID, DEFAULT_USER_ID } from '../services/api';
 
 type StudioMessage = {
   id: string;
@@ -187,13 +188,13 @@ export const StudioChat: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Tenant-ID': 'default-tenant',
-          'X-User-ID': 'default-user',
+          'X-Tenant-ID': DEFAULT_TENANT_ID,
+          'X-User-ID': DEFAULT_USER_ID,
         },
         body: JSON.stringify({
           session_id: sessionId,
-          tenant_id: 'default-tenant',
-          user_id: 'default-user',
+          tenant_id: DEFAULT_TENANT_ID,
+          user_id: DEFAULT_USER_ID,
           message: text,
           component_id: componentBeforeEdit,
         }),

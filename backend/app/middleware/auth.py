@@ -17,7 +17,16 @@ Supports three identity-passing strategies:
 
 For new integrations, use API Keys (#1). The SDK's SparkClient.create()
 accepts an API key and sends it as Bearer sk_live_*.
+
+Dev defaults: well-known UUIDs used when no auth header is present. They are
+recognisable in logs but valid for UUID columns in Postgres.
 """
+
+# Stable UUIDs for unauthenticated / dev-mode requests.
+# Using fixed v5 UUIDs derived from the human-readable names keeps them
+# recognisable in logs while satisfying UUID-typed DB columns.
+DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"  # "default-tenant"
+DEFAULT_USER_ID   = "00000000-0000-0000-0000-000000000002"  # "default-user"
 import base64
 import hashlib
 import logging
@@ -57,8 +66,8 @@ def _parse_base64_bearer(token: str) -> tuple[str, str] | None:
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.url.path in _SKIP_PATHS:
-            request.state.tenant_id = "default-tenant"
-            request.state.user_id = "default-user"
+            request.state.tenant_id = DEFAULT_TENANT_ID
+            request.state.user_id = DEFAULT_USER_ID
             request.state.auth_method = "skip"
             request.state.key_id = None
             request.state.scopes = ["generate", "read", "pin", "admin"]
@@ -110,9 +119,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     logger.warning("Malformed Bearer token — falling back to headers")
 
         if not tenant_id:
-            tenant_id = request.headers.get("X-Tenant-ID") or "default-tenant"
+            tenant_id = request.headers.get("X-Tenant-ID") or DEFAULT_TENANT_ID
         if not user_id:
-            user_id = request.headers.get("X-User-ID") or "default-user"
+            user_id = request.headers.get("X-User-ID") or DEFAULT_USER_ID
 
         request.state.tenant_id = tenant_id
         request.state.user_id = user_id
@@ -131,11 +140,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
 # ── Dependency helpers ─────────────────────────────────────────────────────
 
 def get_tenant_id(request: Request) -> str:
-    return getattr(request.state, "tenant_id", "default-tenant")
+    return getattr(request.state, "tenant_id", DEFAULT_TENANT_ID)
 
 
 def get_user_id(request: Request) -> str:
-    return getattr(request.state, "user_id", "default-user")
+    return getattr(request.state, "user_id", DEFAULT_USER_ID)
 
 
 def get_key_id(request: Request) -> Optional[str]:

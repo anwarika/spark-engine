@@ -2,11 +2,21 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import logging
 import json
+import uuid as _uuid_module
 from datetime import datetime
 import asyncio
 from app.config import settings
 from supabase import create_client, Client
 import asyncpg
+
+
+def _is_valid_uuid(value: str) -> bool:
+    """Return True if *value* is a well-formed UUID string."""
+    try:
+        _uuid_module.UUID(str(value))
+        return True
+    except (ValueError, AttributeError):
+        return False
 
 logger = logging.getLogger(__name__)
 
@@ -529,13 +539,12 @@ class PostgresStorage(Storage):
     async def get_or_create_session(self, tenant_id: str, user_id: str, session_id: str) -> str:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT id FROM chat_sessions WHERE session_id = $1", session_id)
-            if row:
-                return str(row['id'])
-            
+            # Atomic upsert — safe against concurrent requests with the same session_id
             val = await conn.fetchval("""
                 INSERT INTO chat_sessions (session_id, tenant_id, user_id, started_at, last_activity_at)
                 VALUES ($1, $2, $3, NOW(), NOW())
+                ON CONFLICT (session_id) DO UPDATE
+                    SET last_activity_at = NOW()
                 RETURNING id
             """, session_id, tenant_id, user_id)
             return str(val)
@@ -652,10 +661,15 @@ class PostgresStorage(Storage):
     async def list_component_templates(self, tenant_id: str, category: Optional[str] = None, is_public: Optional[bool] = None, tag: Optional[str] = None, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            # Logic: (tenant_id = X OR is_public = true) AND filters
-            where_parts = ["(tenant_id = $1::uuid OR is_public = true)"]
-            params = [tenant_id]
-            
+            # When tenant_id is not a valid UUID (e.g. the "default-tenant" dev fallback)
+            # we can't cast it to ::uuid — just show public templates instead.
+            if _is_valid_uuid(tenant_id):
+                where_parts = ["(tenant_id = $1::uuid OR is_public = true)"]
+                params = [tenant_id]
+            else:
+                where_parts = ["is_public = true"]
+                params = []
+
             if category:
                 where_parts.append(f"category = ${len(params)+1}")
                 params.append(category)

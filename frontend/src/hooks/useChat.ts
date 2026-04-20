@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useChatStore } from '../store/chatStore';
-import { chatAPI } from '../services/api';
+import { chatAPI, DEFAULT_TENANT_ID, DEFAULT_USER_ID } from '../services/api';
 
 type StreamEvent =
   | { event: 'progress'; data: { step: string; status: 'start' | 'done' | 'error'; ms?: number } }
@@ -110,8 +110,8 @@ export const useChat = () => {
     const iteratingFrom = activeComponentId;
     const body: Record<string, string> = {
       session_id: sessionId,
-      tenant_id: 'default-tenant',
-      user_id: 'default-user',
+      tenant_id: DEFAULT_TENANT_ID,
+      user_id: DEFAULT_USER_ID,
       message
     };
     if (iteratingFrom) {
@@ -123,8 +123,8 @@ export const useChat = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Tenant-ID': 'default-tenant',
-          'X-User-ID': 'default-user'
+          'X-Tenant-ID': DEFAULT_TENANT_ID,
+          'X-User-ID': DEFAULT_USER_ID,
         },
         body: JSON.stringify(body)
       });

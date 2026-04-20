@@ -114,9 +114,13 @@ Output (JSON):
   "reasoning": "Explanation"
 }
 
-If the user request implies visualization (chart, table) but NO data is provided, status is "missing_data".
-If the user request is generic ("make a sales chart") and data is missing, define the schema you need.
-If the user provides data (e.g. "sales": [...]), status is "sufficient".
+RULES:
+- If data_context is empty OR absent, status is ALWAYS "sufficient". The generation
+  phase will create realistic mock/sample data automatically — do NOT block on this.
+- Return "missing_data" ONLY when the user explicitly says they want to connect REAL
+  data (e.g. "use my CRM data", "connect to my database") but provides no context.
+- If the user just describes a dashboard or visualization with no data qualifier,
+  assume mock data is acceptable and return "sufficient".
 """
     
     analysis_messages = [

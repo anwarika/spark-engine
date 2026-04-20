@@ -4,7 +4,7 @@
 
 Spark turns natural language prompts into live, embeddable micro-apps. Your AI agent sends a prompt — Spark generates, compiles, and serves a sandboxed Solid.js UI as an iframe URL. Any chat interface can embed Spark. No UI framework required.
 
-[![Version](https://img.shields.io/badge/version-3.3.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.4.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-AGPLv3-green.svg)](LICENSE)
 [![SDK](https://img.shields.io/badge/npm-%40spark--engine%2Fsdk-cb0000.svg)](packages/spark-sdk)
 
@@ -129,6 +129,45 @@ curl -X POST http://localhost:8000/api/components/{id}/data/swap \
 
 The component re-renders with live data. Cached in Redis per tenant — no LLM call required.
 
+### Python Data Transform Layer (new in v3.4.0)
+
+Can't pre-aggregate your data? Describe the computation in plain English — Spark generates safe Python, executes it in the [Monty](https://github.com/pydantic/monty) sandbox (no I/O, no network, microseconds), and stores the result in the Data Bridge.
+
+```bash
+# Transform raw orders into a revenue summary — then cache it for the component
+curl -X POST http://localhost:8000/api/components/{id}/data/transform \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "raw_data": { "orders": [...10k rows...] },
+    "transform": "Top 5 products by revenue this month",
+    "ttl_seconds": 3600
+  }'
+# → { "status": "ok", "output_keys": ["top_products"], "execution_ms": 0.8, "cached": true }
+```
+
+Or preview without caching (great for the Playground):
+
+```bash
+curl -X POST http://localhost:8000/api/transform/preview \
+  -H "Content-Type: application/json" \
+  -d '{
+    "raw_data": { "orders": [...] },
+    "transform": "Total revenue by category, sorted highest first"
+  }'
+# → { "code": "...", "result": { "by_category": [...] }, "execution_ms": 0.4 }
+```
+
+SDK shorthand:
+
+```typescript
+// Transform + cache for a component
+await spark.transformData(componentId, rawData, "Top 5 products by revenue");
+
+// Preview only — get the generated code + output back
+const { code, result } = await spark.previewTransform(rawData, "Sum by category");
+```
+
 ---
 
 ## API Reference
@@ -221,6 +260,39 @@ The component re-renders with live data. Cached in Redis per tenant — no LLM c
 | GET | `/api/components/{id}/iframe` | Serve sandboxed iframe HTML |
 | POST | `/api/components/{id}/data` | Data endpoint called by iframe at runtime |
 | POST | `/api/components/{id}/data/swap` | Data Bridge — store real data in Redis |
+| PATCH | `/api/components/{id}/data` | Merge partial data into existing Data Bridge entry |
+
+### Python Data Transform
+
+| Method | Endpoint | Scope | Description |
+|---|---|---|---|
+| POST | `/api/components/{id}/data/transform` | generate | LLM → Python → Monty → cache in Data Bridge |
+| POST | `/api/transform/preview` | generate | Transform without caching (Playground / debug) |
+| GET | `/api/components/{id}/data/transform/code` | read | Return the last generated Python code for a component |
+
+**Transform request:**
+
+```json
+{
+  "raw_data": { "orders": [...] },
+  "transform": "Top 5 products by revenue this month",
+  "ttl_seconds": 3600,
+  "dry_run": false
+}
+```
+
+**Transform response:**
+
+```json
+{
+  "status": "ok",
+  "output_keys": ["top_products"],
+  "execution_ms": 0.8,
+  "cached": true,
+  "component_id": "a3f7b2e1-...",
+  "ttl_seconds": 3600
+}
+```
 
 ### Chat (Studio mode)
 
@@ -240,25 +312,43 @@ Pass `component_id` in the request body to iterate on an existing micro-app (bol
 
 ### Auth
 
-All endpoints accept either:
+**API keys** are the recommended auth method (v3.4.0+):
+
+```bash
+# Create a key (requires admin scope or dev mode)
+curl -X POST http://localhost:8000/api/keys \
+  -H "Authorization: Bearer <admin_token>" \
+  -d '{"label": "My App", "scopes": ["generate", "read"]}'
+# → { "key": "sk_live_...", "id": "...", "scopes": [...] }
+# The raw key is shown ONCE — store it.
+
+# Use the key on all subsequent requests
+curl http://localhost:8000/api/components \
+  -H "Authorization: Bearer sk_live_..."
+```
+
+Legacy options (still supported):
 
 ```
 X-Tenant-ID: acme-corp
 X-User-ID:   user-42
 ```
 
-Or a compact Bearer token (preferred for SDK integrations):
+Or a compact Bearer token:
 
 ```
 Authorization: Bearer <base64(tenantId:userId)>
 ```
 
-Mint the token on your backend:
+**Scopes:** `generate` · `read` · `pin` · `admin` — API keys carry a scope list; each route enforces the minimum required scope.
 
-```javascript
-const token = Buffer.from(`${tenantId}:${userId}`).toString('base64');
-// → "YWNtZS1jb3JwOnVzZXItNDI="
-```
+### API Keys
+
+| Method | Endpoint | Scope | Description |
+|---|---|---|---|
+| POST | `/api/keys` | admin | Create a new API key |
+| GET | `/api/keys` | admin | List all active keys (prefix only, never full key) |
+| DELETE | `/api/keys/{id}` | admin | Revoke a key |
 
 ---
 
